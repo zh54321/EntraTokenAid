@@ -14,7 +14,7 @@ This tool should bridges this gap with a lightweight, standalone PowerShell solu
 
 ## Features
 
-- **No dependencies**: A pure PowerShell single-file module that works on Windows systems (tested in PS 5&7).
+- **No dependencies**: A pure PowerShell single-file module that works on Windows systems (tested in PS 5&7) and on Linux.
 - **Interactive Authentication**: Supports both OAuth Auth Code Flow and Device Code Flow.
 - **Flexible Refresh**: Obtain access tokens for any API and client using refresh tokens.
 - **CAE Support**: By default, requests CAE (Continuous Access Evaluation) capable access tokens, valid for 24 hours.
