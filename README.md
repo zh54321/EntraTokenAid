@@ -46,7 +46,7 @@ Using the obtained refresh token to get new tokens on another API and using anot
    ```
 2. Import the module before usage:
    ```powershell
-   Import-Module .\EntraTokenAid\EntraTokenAid.psm1
+   Import-Module ./EntraTokenAid/EntraTokenAid.psm1
    ```
 
 ---
