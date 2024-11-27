@@ -42,11 +42,11 @@ Using the obtained refresh token to get new tokens on another API and using anot
 
 1. Clone the repository:
     ```powershell
-   git clone https://github.com/zh54321/TokenAid.git
+   git clone https://github.com/zh54321/EntraTokenAid.git
    ```
 2. Import the module before usage:
    ```powershell
-   Import-Module ./TokenAid/TokenAid.psm1
+   Import-Module ./EntraTokenAid/EntraTokenAid.psm1
    ```
 
 ---
