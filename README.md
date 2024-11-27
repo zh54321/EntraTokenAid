@@ -97,25 +97,35 @@ Perform authentication and retrieve tokens with default options (MS Graph API / 
 $Tokens = Invoke-Auth
 ```
 
-Perform authentication on Azure ARM API
+Authenticate on Azure ARM API:
 ```powershell
 $Tokens = Invoke-Auth -API "management.azure.com"
 ```
 
-Perform authentication and retrieve a token using a custom client id and scope:
+Authenticate with a custom client ID and scope:
 ```powershell
 $Tokens = Invoke-Auth -ClientID "your-client-id" -Scope "offline_access Mail.Read"
 ```
 
-Connect to MS Graph API one-liner:
+Connect to Microsoft Graph API in a one-liner:
 ```powershell
 Connect-MgGraph -AccessToken ((Invoke-Auth).access_token | ConvertTo-SecureString -AsPlainText -Force)
 ```
 
-Perform authentication and use with AzureHound:
+Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
 ```powershell
 $Tokens = Invoke-Auth
 .\azurehound.exe --refresh-token $Tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
+```
+Authenticate and use with [GraphRunner](https://github.com/dafthack/GraphRunner):
+```powershell
+$tokens = Invoke-Auth
+Invoke-GraphRecon -Tokens $tokens -PermissionEnum
+```
+Authenticate on Azure Resource Manager as Azure Powershell, refresh to Office API as Microsoft Office:
+```powershell
+$tokens =invoke-auth -ClientID 1950a258-227b-4e31-a9cf-717495945fc2 -api management.azure.com
+$tokensOffice = invoke-refresh -RefreshToken $tokens.refresh_token -ClientID d3590ed6-52b3-4102-aeff-aad2292ab01c -api manage.office.com
 ```
 
 Perform automated testing by disabling user selection (already logged-in user in the browser will be used), activate reporting, set the HTTP timeout and loop through a list of client IDs:
@@ -172,7 +182,7 @@ Connect to MS Graph API one-liner
 Connect-MgGraph -AccessToken ((Invoke-DeviceCodeFlow).access_token | ConvertTo-SecureString -AsPlainText -Force)
 ```
 
-Perform authentication and use with AzureHound:
+Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
 ```powershell
 $Tokens = Invoke-DeviceCodeFlow
 .\azurehound.exe --refresh-token $Tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
@@ -199,17 +209,17 @@ Uses a refresh token to obtain a new access token, optionally for the same or a 
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |  
 
 #### Example
-Use the refresh token to get new tokens:
+Reuse the refresh token to get new tokens:
 ```powershell
 Invoke-Refresh -RefreshToken $Tokens.refresh_token
 ```
 
-Refresh using the same client id, api and scopes used before:
+Refresh tokens using the same client ID, API, and scopes as before:
 ```powershell
 Invoke-Refresh -RefreshToken $Tokens.refresh_token -Scope $Tokens.scp -Api $Tokens.api
 ```
 
-Get tokens for the AzureARM API:
+Refresh to a specific API (e.g., Azure Resource Manager):
 ```powershell
 Invoke-Refresh -RefreshToken $Tokens.refresh_token -Api management.azure.com
 ```
@@ -232,7 +242,6 @@ The function use used automatically by other functions but can be used manually 
 Parse a JWT and display its claims:
 ```powershell
 Invoke-ParseJwt -JWT $Tokens.access_token
-
 ```
 
 ---
