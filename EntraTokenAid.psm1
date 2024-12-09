@@ -562,7 +562,7 @@ function Invoke-Refresh {
         grant_type    = "refresh_token"
         client_id     = $ClientID
         scope  = $ApiScopeUrl
-        refresh_token = $tokens.refresh_token
+        refresh_token = $RefreshToken
     }
 
     #Check if CAE is wanted
