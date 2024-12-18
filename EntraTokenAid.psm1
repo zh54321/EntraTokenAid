@@ -17,6 +17,7 @@
     - Avoiding Consent: By default, the tool uses the Azure CLI client ID, enabling many MS Graph API actions without additional consent due to pre-consented permissions.
     - Parameters: A wide range of parameters allow you to customize the tool's behavior, such as enabling features like PKCE, CAE, and more, providing greater control during usage.
     - Automation-Friendly: Enables automated OAuth Auth Code Flow tests by disabling user interaction, with the gathered tokens and claims exported to a CSV file.
+    - Support of the parameters BrkClientId, RedirectUri and Origin. In combination with a refresh token from the Azure Portal, this allows to get tokens from applications with interesting pre consented scopes on the MS Graph API.
 
     .LINK
     https://github.com/zh54321/EntraTokenAid
@@ -507,6 +508,10 @@ function Invoke-Refresh {
     .PARAMETER Api
     The base URL of the API for which the new access token is required. Defaults to `graph.microsoft.com`.
 
+    .PARAMETER UserAgent
+    Specifies the user agent string to be used in the HTTP requests. This can be customized to mimic specific browser or application behavior.
+    Default: `python-requests/2.32.3`
+
     .PARAMETER Tenant
     Specifies the target tenant id for authentication. Defaults to `organizations` for multi-tenant scenarios.
 
@@ -518,6 +523,15 @@ function Invoke-Refresh {
 
     .PARAMETER DisableCAE
     Disables Continuous Access Evaluation (CAE) features when requesting the new token.
+
+    .PARAMETER BrkClientId
+    Specifiy the brk_client_id parameter.
+
+    .PARAMETER RedirectUri
+    Specifiy the redirect_uri parameter.
+
+    .PARAMETER Origin
+    Define Origin Header to be used in the HTTP request.
 
     .PARAMETER Reporting
     Enables logging (CSV) the details of the refresh operation for later analysis. 
@@ -541,17 +555,22 @@ function Invoke-Refresh {
         [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
         [Parameter(Mandatory=$false)][string]$Tenant = "common",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "python-requests/2.32.3",
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$DisableCAE = $false,
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][string]$Origin,
+        [Parameter(Mandatory=$false)][string]$BrkClientId,
+        [Parameter(Mandatory=$false)][string]$RedirectUri
     )
 
     #Define headers (Emulat Azure CLI)
     $Headers = @{
-        "User-Agent" = "python-requests/2.32.3"
+        "User-Agent" = $UserAgent
         "X-Client-Sku" = "MSAL.Python"
         "X-Client-Ver" = "1.31.0"
         "X-Client-Os" = "win32"
+        "Origin" = $Origin
     }
 
     #Construct Scope
@@ -569,12 +588,56 @@ function Invoke-Refresh {
     if (-not $DisableCAE) {
         $Body.Add("claims", '{"access_token": {"xms_cc": {"values": ["CP1"]}}}')
     }
-    Write-Host "[*] Send request to token endpoint"
+
+    #Check if brk_client_id is wanted
+    if (-not [string]::IsNullOrEmpty($BrkClientId)) {
+        $Body.Add("brk_client_id", $BrkClientId)
+    }
+    
+    #Check if redirect uri is wanted
+    if (-not [string]::IsNullOrEmpty($RedirectUri)) {
+        $Body.Add("redirect_uri", $RedirectUri)
+    }    
+
+    Write-Host "[*] Sending request to token endpoint"
     # Call the token endpoint to get the tokens
-    $tokens = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/token" -Method POST -Body $Body -Headers $Headers
+    $Proceed = $true
+
+    #Try to get the tokens
+    Try {
+        $tokens = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/token" -Method POST -Body $Body -Headers $Headers
+    } Catch {
+        Write-Host "[!] Request Error:"
+        $RequestError = $_ 
+        $ParsedError = $null
+
+        # Check if $RequestError is valid JSON
+        if ($RequestError -and ($ParsedError = $RequestError | ConvertFrom-Json -ErrorAction SilentlyContinue)) {
+            # Check if the parsed JSON contains the expected properties
+            if ($ParsedError.PSObject.Properties["error"] -and $ParsedError.PSObject.Properties["error_description"]) {
+                $ErrorShort = $ParsedError.error
+                $ErrorLong = $ParsedError.error_description
+                Write-Host "[!] Error: $ErrorShort"
+                Write-Host "[!] Error Description: $ErrorLong"
+
+                if ($Reporting) {
+                    $ErrorDetails = [PSCustomObject]@{
+                        ClientID    = $ClientID
+                        ErrorLong   = $ErrorLong
+                    }
+                    Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Refresh_errors.csv"
+                }
+
+            } else {
+                Write-Host "[!] Unknown error: $RequestError"
+            }
+        }
+        Write-Host "[!] Aborting...."
+        $Proceed = $false
+    }
 
     #Check if answer contains tokens
-    if ($tokens.access_token -and $tokens.refresh_token) {
+    if ($tokens.access_token -and $tokens.refresh_token -and $Proceed) {
         Write-Host "[+] Got an access token and a refresh token"
         $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
     
@@ -585,6 +648,7 @@ function Invoke-Refresh {
             Try {
                 $JWT = Invoke-ParseJwt -jwt $tokens.access_token
             } Catch {
+                
                 $JwtParseError = $_ 
                 Write-Host "[!] JWT Parse error: $($JwtParseError)"
                 Write-Host "[!] Aborting...."
@@ -619,7 +683,7 @@ function Invoke-Refresh {
             Invoke-Reporting -jwt $tokens -OutputFile "Refresh_report.csv"
         }
         Return $tokens
-    } else {
+    } elseif($Proceed) {
         Write-Host "[!] The answer obtained from the token endpoint do not contains tokens"
     }
     
@@ -693,6 +757,7 @@ function Invoke-DeviceCodeFlow {
         [Parameter(Mandatory=$false)][switch]$Reporting = $false
     )
 
+    $Proceed = $true
     $Resource = "https://$API"
     $Headers=@{}
     $Headers["User-Agent"] = $UserAgent
@@ -703,99 +768,123 @@ function Invoke-DeviceCodeFlow {
     write-host "[*] Starting Device Code Flow: API $Resource / Client id: $ClientID"
 
     # Call the token endpoint to get the tokens
-    $DeviceCodeDetails = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/devicecode?api-version=1.0" -Method POST -Body $Body -Headers $Headers
-
-    Set-Clipboard $DeviceCodeDetails.user_code
-    write-host "[i] User code: $($DeviceCodeDetails.user_code). Copied to clipboard..."
-
-    #Check if browser should be started automatically
-    if (-not $DisableBrowserStart) {
-        write-host "[*] Opening browser"
-        Start-Process $DeviceCodeDetails.verification_url
-    } else {
-        write-host "[i] Automatic Browser start disabled"
-        write-host "[i] Use the code at: $($DeviceCodeDetails.verification_url)"
-    }
-
-    $Body = @{
-        client_id   = $ClientID
-        grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
-        code        =  $DeviceCodeDetails.device_code
-    }
-
-    $Counter = 0
-    $MaxAttempts = 200
-    Start-Sleep 5
-    while ($Counter -lt $MaxAttempts) {
-        $Counter++
-        Try {
-            $TokensDeviceCode = Invoke-RestMethod 'https://login.microsoftonline.com/Common/oauth2/token?api-version=1.0' -Method POST -Body $Body -Headers $Headers
-        } Catch {
-            $PollingError = $_ | ConvertFrom-Json
-            if ($PollingError.error -eq "authorization_pending") {
-                Write-Host "[*] Authentication is pending. Continue polling ($Counter/$MaxAttempts)..."
-            } elseif ($PollingError.error -eq "code_expired") {
-                Write-Host "[!] Verification code expired. Aborting...."
-                break
-            } else {
-                Write-Host "[!] Unknown error: Aborting...."
-                Write-Host "[!] Error: $($PollingError.error)"
-                Write-Host "[!] Error Description: $($PollingError.error_description)"
-                break
+    Try {
+        $DeviceCodeDetails = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/devicecode?api-version=1.0" -Method POST -Body $Body -Headers $Headers
+    } Catch {
+        $InitialError = $_ | ConvertFrom-Json  
+        Write-Host "[!] Aborting...."
+        Write-Host "[!] Error: $($InitialError.error)"
+        Write-Host "[!] Error Description: $($InitialError.error_description)"
+        if ($Reporting) {
+            $ErrorDetails = [PSCustomObject]@{
+                ClientID    = $ClientID
+                ErrorLong   = $PollingError.error_description
             }
-            Start-Sleep 3
+            Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "DeviceCode_errors.csv"
         }
-        if ($TokensDeviceCode.access_token -and $TokensDeviceCode.refresh_token) {
-            Write-Host "[+] Got an access token and a refresh token"
-            $TokensDeviceCode | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+        $Proceed = $false
+    }
+    
+    if ($Proceed) {
+        Set-Clipboard $DeviceCodeDetails.user_code
+        write-host "[i] User code: $($DeviceCodeDetails.user_code). Copied to clipboard..."
 
-            if (-not $DisableJwtParsing) {
-                #Parse JWT
-                Try {
-                    # Parse the token
-                    $JWT = Invoke-ParseJwt -jwt $TokensDeviceCode.access_token
-                } Catch {
-                    $JwtParseError = $_ 
-                    Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                    Write-Host "[!] Aborting...."
+        #Check if browser should be started automatically
+        if (-not $DisableBrowserStart) {
+            write-host "[*] Opening browser"
+            Start-Process $DeviceCodeDetails.verification_url
+        } else {
+            write-host "[i] Automatic Browser start disabled"
+            write-host "[i] Use the code at: $($DeviceCodeDetails.verification_url)"
+        }
+
+        $Body = @{
+            client_id   = $ClientID
+            grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
+            code        =  $DeviceCodeDetails.device_code
+        }
+
+        $Counter = 0
+        $MaxAttempts = 200
+        Start-Sleep 5
+        while ($Counter -lt $MaxAttempts) {
+            $Counter++
+            Try {
+                $TokensDeviceCode = Invoke-RestMethod 'https://login.microsoftonline.com/Common/oauth2/token?api-version=1.0' -Method POST -Body $Body -Headers $Headers
+            } Catch {
+                $PollingError = $_ | ConvertFrom-Json
+                if ($PollingError.error -eq "authorization_pending") {
+                    Write-Host "[*] Authentication is pending. Continue polling ($Counter/$MaxAttempts)..."
+                } elseif ($PollingError.error -eq "code_expired") {
+                    Write-Host "[!] Verification code expired. Aborting...."
+                    break
+                } else {
+                    Write-Host "[!] Unknown error: Aborting...."
+                    Write-Host "[!] Error: $($PollingError.error)"
+                    Write-Host "[!] Error Description: $($PollingError.error_description)"
+                    if ($Reporting) {
+                        $ErrorDetails = [PSCustomObject]@{
+                            ClientID    = $ClientID
+                            ErrorLong   = $PollingError.error_description
+                        }
+                        Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "DeviceCode_errors.csv"
+                    }
                     break
                 }
-        
-                #Add additonal infos to token object
-                $TokensDeviceCode | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp
-                $TokensDeviceCode | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
-                $TokensDeviceCode | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
-                $TokensDeviceCode | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname
-                $TokensDeviceCode | Add-Member -NotePropertyName client_app_id -NotePropertyValue $ClientID
-                $TokensDeviceCode | Add-Member -NotePropertyName auth_methods -NotePropertyValue $JWT.amr
-                $TokensDeviceCode | Add-Member -NotePropertyName ip -NotePropertyValue $JWT.ipaddr
-                $TokensDeviceCode | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
-                $TokensDeviceCode | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
-                if ($null -ne $JWT.xms_cc) {
-                    $TokensDeviceCode | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
-                }
-                Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
-            } else {
-                Write-Host "[i] Expires at: $($tokens.expiration_time)"
+                Start-Sleep 3
             }
-            
-            
-            #Print token info if switch is used
-            if ($TokenOut) {
-                invoke-PrintTokenInfo -jwt $TokensDeviceCode -NotParsed $DisableJwtParsing
-            }
+            if ($TokensDeviceCode.access_token -and $TokensDeviceCode.refresh_token) {
+                Write-Host "[+] Got an access token and a refresh token"
+                $TokensDeviceCode | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
 
-            #Check if report file should be written
-            if ($Reporting) {
-                Invoke-Reporting -jwt $TokensDeviceCode -OutputFile "DeviceCode_report.csv"
+                if (-not $DisableJwtParsing) {
+                    #Parse JWT
+                    Try {
+                        # Parse the token
+                        $JWT = Invoke-ParseJwt -jwt $TokensDeviceCode.access_token
+                    } Catch {
+                        $JwtParseError = $_ 
+                        Write-Host "[!] JWT Parse error: $($JwtParseError)"
+                        Write-Host "[!] Aborting...."
+                        break
+                    }
+            
+                    #Add additonal infos to token object
+                    $TokensDeviceCode | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp
+                    $TokensDeviceCode | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
+                    $TokensDeviceCode | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
+                    $TokensDeviceCode | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname
+                    $TokensDeviceCode | Add-Member -NotePropertyName client_app_id -NotePropertyValue $ClientID
+                    $TokensDeviceCode | Add-Member -NotePropertyName auth_methods -NotePropertyValue $JWT.amr
+                    $TokensDeviceCode | Add-Member -NotePropertyName ip -NotePropertyValue $JWT.ipaddr
+                    $TokensDeviceCode | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
+                    $TokensDeviceCode | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
+                    if ($null -ne $JWT.xms_cc) {
+                        $TokensDeviceCode | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
+                    }
+                    Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+                } else {
+                    Write-Host "[i] Expires at: $($tokens.expiration_time)"
+                }
+                
+                
+                #Print token info if switch is used
+                if ($TokenOut) {
+                    invoke-PrintTokenInfo -jwt $TokensDeviceCode -NotParsed $DisableJwtParsing
+                }
+
+                #Check if report file should be written
+                if ($Reporting) {
+                    Invoke-Reporting -jwt $TokensDeviceCode -OutputFile "DeviceCode_report.csv"
+                }
+                break
             }
-            break
         }
+        if ($Counter -eq $MaxAttempts) {
+            Write-Host "[i] Max polling attempts reached. Aborting..."
+        }
+        Return $TokensDeviceCode
     }
-    if ($Counter -eq $MaxAttempts) {
-        Write-Host "[i] Max polling attempts reached. Aborting..."
-    }
-    Return $TokensDeviceCode
 }
 
 
@@ -941,6 +1030,9 @@ function Invoke-Reporting {
         .PARAMETER JWT
         Specifies the JSON Web Token (JWT) object to be logged. The token object should include the relevant claims and properties (e.g., audience, scope, client_app).
 
+        .PARAMETER ErrorDetails
+        Specifies ErrorObject object to be logged. The token object should include the properties (e.g., ClientID, ErrorLong).
+
         .PARAMETER OutputFile
         Specifies the path to the CSV file where the token information will be logged. If the file does not exist, it will be created. If the file exists, new entries will be appended.
 
@@ -954,11 +1046,21 @@ function Invoke-Reporting {
         - The function selects specific fields from the JWT object, including `audience`, `scp`, `client_app`, `expires_in`, and others. Custom fields, such as `AuthMethods` and `xms_cc`, are joined into a single string for better readability in the CSV.
     #>
     param (
-        [Parameter(Mandatory=$true)][PSObject]$JWT,
+        [Parameter(Mandatory=$false)][PSObject]$JWT,
+        [Parameter(Mandatory=$false)][PSObject]$ErrorDetails,
         [Parameter(Mandatory=$true)][String]$OutputFile
     )
 
-    $SelectedInfo = $JWT | select-object audience,scp,client_app,client_app_id,foci,expires_in,ext_expires_in,Expiration_time,refresh_in,@{Name = "AuthMethods"; Expression = { ($_.auth_methods -join ", ") } },@{Name = "xms_cc"; Expression = { ($_.xms_cc -join ", ") } },access_token,refresh_token
+    if ($null -ne $JWT) {
+        #Add timestamp
+        $JWT | Add-Member -MemberType NoteProperty -Name "timestamp" -Value (Get-Date).ToString("o")
+        $SelectedInfo = $JWT | select-object timestamp,audience,scp,client_app,client_app_id,@{Name = "foci"; Expression = { if ($null -eq $_.foci) { 0 } else { $_.foci } } },expires_in,ext_expires_in,Expiration_time,refresh_in,@{Name = "AuthMethods"; Expression = { ($_.auth_methods -join ", ") } },@{Name = "xms_cc"; Expression = { ($_.xms_cc -join ", ") } },access_token,refresh_token
+    } elseif ($null -ne $ErrorDetails) {
+        #Add timestamp
+        $ErrorDetails | Add-Member -MemberType NoteProperty -Name "timestamp" -Value (Get-Date).ToString("o")
+        $SelectedInfo = $ErrorDetails  | select-object timestamp,ClientID,ErrorLong
+    }
+    
 
     # Write to CSV with or without headers
     if (-Not (Test-Path -Path $OutputFile)) {

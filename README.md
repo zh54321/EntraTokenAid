@@ -107,9 +107,9 @@ Authenticate with a custom client ID and scope:
 $Tokens = Invoke-Auth -ClientID "your-client-id" -Scope "offline_access Mail.Read"
 ```
 
-Connect to Microsoft Graph API in a one-liner:
+Connect to Microsoft Graph API:
 ```powershell
-Connect-MgGraph -AccessToken ((Invoke-Auth).access_token | ConvertTo-SecureString -AsPlainText -Force)
+Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
 ```
 
 Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
@@ -177,9 +177,9 @@ Authenticate using the device code flow specifiy the client id and api
 ```powershell
 $Token = Invoke-DeviceCodeFlow -ClientID "your-client-id" -Api "graph.microsoft.com"
 ```
-Connect to MS Graph API one-liner
+Connect to MS Graph API:
 ```powershell
-Connect-MgGraph -AccessToken ((Invoke-DeviceCodeFlow).access_token | ConvertTo-SecureString -AsPlainText -Force)
+Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
 ```
 
 Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
@@ -193,19 +193,24 @@ $Tokens = Invoke-DeviceCodeFlow
 ### `Invoke-Refresh`
 
 Uses a refresh token to obtain a new access token, optionally for the same or a different API or client (for FOCI tokens).
+Supports the ```brk_client_id```, ```redirect_uri``` and ```origin```. This allows in combination with a refresh token from the Azure Portal to get MS Graph Tokens with the client Microsoft_Azure_PIMCommon. With the token, it is possible to read the eligible assignment (pre-consented ```RoleEligibilitySchedule.ReadWrite.Directory```...).
 
 #### Parameters
 
 | Parameter            | Description                                                                 | Default Value                                     |
 |----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
-| **RefreshToken**     | Refresh token to used (MANDETORY).                                           | -                                                 |
+| **RefreshToken**     | Refresh token to used (MANDETORY).                                          | -                                                 |
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
 | **Scope**            | Scopes (space sperated) to be requested.                                    | `default offline_access`                          |
 | **Api**              | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
+| **UserAgent**        | User agent used.                                                            | `python-requests/2.32.3`                          |  
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
 | **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
+| **BrkClientId**      | Define brk_client_id.                                                       | `-`                                               |
+| **RedirectUri**      | Define redirect_uri.                                                        | `-`                                               |
+| **Origin**           | Define Origin Header.                                                       | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |  
 
 #### Example
@@ -223,6 +228,12 @@ Refresh to a specific API (e.g., Azure Resource Manager):
 ```powershell
 Invoke-Refresh -RefreshToken $Tokens.refresh_token -Api management.azure.com
 ```
+
+Refresh to AzurePIM Application using the ```broker client id``` of the Azure portal*:
+```powershell
+Invoke-Refresh -RefreshToken $tokensMC.refresh_token -clientid 7655d621-3c86-4a9a-92f8-47244f293b55 -api graph.microsoft.com -BrkClientId c44b4083-3bb0-49c1-b47d-974e53cbdf3c -RedirectUri "brk-c44b4083-3bb0-49c1-b47d-974e53cbdf3c://entra.microsoft.com" -Origin "https://entra.microsoft.com"
+```
+Note: this requires a valid refresh token from the Azure portal scoped to `https://management.core.windows.net//` (search in the DEV tools for this string).
 
 
 ---
@@ -286,3 +297,24 @@ Attackers which gain access to those files may abuse credentials like long-lived
 This module includes a JWT parsing method that was initially adapted from the following blog post:
 
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
+
+## Changelog
+
+### 2024-12-18
+#### Added
+
+- Refresh Auth: User Agent parameter
+- Refresh Auth: New parameters BrkClientId, RedirectUri and Origin. In combination with a refresh token from the Azure Portal, this allows to get tokens from applications with interesting pre consented scopes on the MS Graph API.
+- Refresh Auth: Failed authentications are now logged as well to the CSV file (switch `-Reporting`)
+- Device Code Flow: Failed authentications are now logged as well to the CSV file (switch `-Reporting`)
+
+
+### 2024-12-09
+
+#### Fixed
+- Fixed an issue with static RT parameter (Invoke-Refresh)
+
+
+### 2024-11-25
+
+- Initial release
