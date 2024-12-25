@@ -267,7 +267,7 @@ The following functions are for internal use and are not exported by the module:
 
 ## Security Warning
 
-It is **discouraged** to pass sensitive information, such as **Access Tokens** or escpecially **Refresh Tokens**, directly in the command line. 
+It is **discouraged** to pass sensitive information, such as **Access Tokens** or especially **Refresh Tokens**, directly in the command line. 
 
 
 Command-line arguments are stored by default in the PowerShell history file in your profile, events, or security monitoring tools.
