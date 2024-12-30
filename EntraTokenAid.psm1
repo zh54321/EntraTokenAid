@@ -132,8 +132,18 @@ function Invoke-Auth {
     # Http Server
     $http = [System.Net.HttpListener]::new() 
     $http.Prefixes.Add("http://localhost:$Port/")
-    $http.Start()
 
+    Try {
+        $http.Start()
+    } Catch {
+        $HttpStartError = $_
+        if ($HttpStartError -match "because it conflicts with an existing registration on the machine") {
+            Write-Host "[!] The port $Port is already blocked by another process."
+            Write-Host "[!] Close the other process or use -port to define another port."
+        } else {
+            write-host "[!] ERROR: $HttpStartError"
+        }
+    }
     
     if ($http.IsListening) {
         write-host "[+] HTTP server running on http://localhost:$Port"

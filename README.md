@@ -83,6 +83,7 @@ All parameters are optional.
 | **Port**             | Local port to listen on for the OAuth callback.                             | `13824`                                           |
 | **HtmlOut**          | Display the tokens in the OAuth callback in a browser.                      | `true`                                            |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
+| **RedirectURL**      | URL for the OAuth redirect.                                                 | `http://localhost:%PORT%`                         |
 | **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
 | **DisablePrompt**    | Suppresses interactive user selection. Used logged-in user directly         | `false`                                           |
 | **HttpTimeout**      | Time in seconds the HTTP Server waiting for OAuth callback.                 | `60`                                              |
