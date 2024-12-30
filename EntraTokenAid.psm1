@@ -76,6 +76,10 @@ function Invoke-Auth {
     .PARAMETER DisablePKCE
     Disables the use of Proof Key for Code Exchange (PKCE) during authentication.
 
+    .PARAMETER RedirectURL
+    Custom redirect URL.
+    Default: `http://localhost:%PORT%`
+
     .PARAMETER DisableCAE
     Disables Continuous Access Evaluation (CAE), which is used to revoke tokens in real-time based on certain security events.
     Access token are shorter lived when CAE is not used.
@@ -115,6 +119,7 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][string]$Scope = "default offline_access",
         [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
+        [Parameter(Mandatory=$false)][string]$RedirectURL = "http://localhost:$($Port)",
         [Parameter(Mandatory=$false)][bool]$HtmlOut = $true,
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
@@ -126,9 +131,8 @@ function Invoke-Auth {
 
     # Http Server
     $http = [System.Net.HttpListener]::new() 
-    $http.Prefixes.Add("http://localhost:$Port/") 
+    $http.Prefixes.Add("http://localhost:$Port/")
     $http.Start()
-
 
     
     if ($http.IsListening) {
@@ -146,7 +150,7 @@ function Invoke-Auth {
         $State = [Convert]::ToBase64String((1..12 | ForEach-Object { [byte](Get-Random -Minimum 0 -Maximum 256) })).Replace('+', '-').Replace('/', '_').Replace('=', '')
 
         # Define the URL
-        $Url = "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/authorize?response_type=code&client_id=$ClientID&redirect_uri=http://localhost:$Port/&state=$State&scope=$ApiScopeUrl&client_info=1"
+        $Url = "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/authorize?response_type=code&client_id=$ClientID&redirect_uri=$RedirectURL&state=$State&scope=$ApiScopeUrl&client_info=1"
 
         #Check if account prompt should be disabled
         if (-not $DisablePrompt) {
