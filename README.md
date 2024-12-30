@@ -301,10 +301,15 @@ This module includes a JWT parsing method that was initially adapted from the fo
 
 ## Changelog
 
+### 2024-12-30
+#### Added
+- Refresh Auth: New redirect parameter
+- Refresh Auth: Better HTTP server error handling
+
 ### 2024-12-18
 #### Added
 
-- Refresh Auth: User Agent parameter
+- Refresh Auth: New User Agent parameter
 - Refresh Auth: New parameters BrkClientId, RedirectUri and Origin. In combination with a refresh token from the Azure Portal, this allows to get tokens from applications with interesting pre consented scopes on the MS Graph API.
 - Refresh Auth: Failed authentications are now logged as well to the CSV file (switch `-Reporting`)
 - Device Code Flow: Failed authentications are now logged as well to the CSV file (switch `-Reporting`)
