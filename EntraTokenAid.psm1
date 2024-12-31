@@ -147,7 +147,7 @@ function Invoke-Auth {
     
     if ($http.IsListening) {
         write-host "[+] HTTP server running on http://localhost:$Port"
-        write-host "[i] HTTP server while timeout according to the HttpTimeout value: $HttpTimeout s"
+        write-host "[i] Listening for OAuth callback for $HttpTimeout s (HttpTimeout value) "
         write-host "[i] Call http://localhost:$Port without any parameter to stop manually"
         
         #Convert timeout to MS
@@ -467,7 +467,7 @@ function Invoke-Auth {
                 }
             } else {
                 # HTTP Timeout occurred
-                Write-Output "[!] No request received within the timeout period."
+                Write-Host "[!] No request received within the timeout period."
                 $AuthError = $true
                 break
             }

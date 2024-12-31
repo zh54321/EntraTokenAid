@@ -303,8 +303,8 @@ This module includes a JWT parsing method that was initially adapted from the fo
 
 ### 2024-12-30
 #### Added
-- Refresh Auth: New redirect parameter
-- Refresh Auth: Better HTTP server error handling
+- Invoke Auth: New redirect parameter
+- Invoke Auth: Better HTTP server error handling
 
 ### 2024-12-18
 #### Added
