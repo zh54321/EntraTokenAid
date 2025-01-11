@@ -309,6 +309,7 @@ function Invoke-Auth {
                             $tokens | Add-Member -NotePropertyName client_app_id -NotePropertyValue $ClientID
                             $tokens | Add-Member -NotePropertyName auth_methods -NotePropertyValue $JWT.amr
                             $tokens | Add-Member -NotePropertyName ip -NotePropertyValue $JWT.ipaddr
+                            $tokens | Add-Member -NotePropertyName uti -NotePropertyValue $JWT.uti
                             $tokens | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
                             $tokens | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
                             if ($null -ne $JWT.xms_cc) {
@@ -901,6 +902,163 @@ function Invoke-DeviceCodeFlow {
     }
 }
 
+function Invoke-ClientCredential {
+    <#
+        .SYNOPSIS
+        Performs OAuth 2.0 authentication using the Client Credential  Flow.
+
+        .DESCRIPTION
+        The `Invoke-ClientCredential` function implements the OAuth 2.0 Client Credentials Flow. 
+        It retrieves an access token for the specified API and supports additional features like JWT parsing, custom reporting, and secure handling of client secrets.
+
+        .PARAMETER ClientId
+        Specifies the client ID of the application being authenticated. This parameter is mandatory.
+
+        .PARAMETER ClientSecret
+        Specifies the client secret of the application being authenticated. If not provided, the function prompts for secure input during execution.
+        
+        .PARAMETER Api
+        Specifies the target API for the authentication request.
+        Default: `graph.microsoft.com`
+        
+        .PARAMETER DisableJwtParsing
+        Disables parsing of the JWT access token. When set, the token is returned as-is without any additional information.
+
+        .PARAMETER TokenOut
+        Outputs the access to the console upon successful authentication.
+
+        .PARAMETER UserAgent
+        Specifies the user agent string to be used in the HTTP requests. This can be customized to mimic specific browser or application behavior.
+        Default: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36`
+
+        .PARAMETER TenantId
+        Specifies the tenant ID for authentication. This parameter is mandatory.
+
+        .PARAMETER Reporting
+        Enables logging (CSV) the details of the refresh operation for later analysis. 
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id"
+
+        Authenticates with the specified client ID and secret, targeting the default Microsoft Graph API.
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id" -Api "management.azure.com" -Scope "user.read"
+
+        Authenticates with the specified client credentials and retrieves a token for the Azure Management API with the `user.read` scope.
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -Reporting
+
+        Prompts for the client secret securely, authenticates, and logs detailed results to a CSV file.
+
+        .NOTES
+        Ensure the client application has the appropriate permissions for the specified API and scope in Azure AD.
+        
+    #>
+    param (
+        [Parameter(Mandatory=$true)][string]$ClientId,
+        [Parameter(Mandatory=$false)][string]$ClientSecret,
+        [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Scope = "default",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+    )
+
+    $Proceed = $true
+    $Headers=@{}
+    $Headers["User-Agent"] = $UserAgent
+    
+    if (-not $ClientSecret) {
+        $ClientSecretSecure = Read-Host -Prompt "Enter the client secret" -AsSecureString
+        if ($ClientSecretSecure -is [System.Security.SecureString]) {
+            Write-Host "Variable is a SecureString."
+        } else {
+            Write-Host "Variable is NOT a SecureString. Check your input."
+        }
+        $ClientSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+            [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ClientSecretSecure)
+        )
+    }
+
+    #Construct Scope
+    $ApiScopeUrl = "https://$Api/.$Scope"
+        
+     # Get Access Token 
+    $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" 
+    $body = @{
+         'scope'     = $ApiScopeUrl
+         'client_id'      = $ClientId 
+         'client_secret' = $ClientSecret
+         'grant_type' = 'client_credentials' 
+    }
+
+    write-host "[*] Starting Client Credential flow: API $Api / Client id: $ClientID"
+    Try {
+        $TokensClientCredential = Invoke-RestMethod -Method Post -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
+    } Catch {
+        $InitialError = $_ | ConvertFrom-Json  
+        Write-Host "[!] Aborting...."
+        Write-Host "[!] Error: $($InitialError.error)"
+        Write-Host "[!] Error Description: $($InitialError.error_description)"
+        if ($Reporting) {
+            $ErrorDetails = [PSCustomObject]@{
+                ClientID    = $ClientID
+                ErrorLong   = $PollingError.error_description
+            }
+            Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "ClientCredential_errors.csv"
+        }
+        $Proceed = $false
+    }
+
+    if ($Proceed) {
+        if ($TokensClientCredential.access_token) {
+            Write-Host "[+] Got an access token"
+            $TokensClientCredential | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+
+            if (-not $DisableJwtParsing) {
+                #Parse JWT
+                Try {
+                    # Parse the token
+                    $JWT = Invoke-ParseJwt -jwt $TokensClientCredential.access_token
+                } Catch {
+                    $JwtParseError = $_ 
+                    Write-Host "[!] JWT Parse error: $($JwtParseError)"
+                    Write-Host "[!] Aborting...."
+                    break
+                }
+
+                #Add additonal infos to token object
+                $TokensClientCredential | Add-Member -NotePropertyName client_app_id -NotePropertyValue $JWT.appid
+                if ($JWT.app_displayname) {$TokensClientCredential | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname}
+                $TokensClientCredential | Add-Member -NotePropertyName sp_object_id -NotePropertyValue $JWT.oid
+                if ($JWT.roles) {$TokensClientCredential | Add-Member -NotePropertyName roles -NotePropertyValue $JWT.roles}
+                $TokensClientCredential | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
+                $TokensClientCredential | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
+                Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($TokensClientCredential.expiration_time)"
+            } else {
+                Write-Host "[i] Expires at: $($TokensClientCredential.expiration_time)"
+            }
+            
+            
+            #Print token info if switch is used
+            if ($TokenOut) {
+                invoke-PrintTokenInfo -jwt $TokensClientCredential -NotParsed $DisableJwtParsing
+            }
+
+            #Check if report file should be written
+            if ($Reporting) {
+                Invoke-Reporting -jwt $TokensClientCredential -OutputFile "ClientCredential_report.csv"
+            }
+
+        }
+    }
+
+    Return $TokensClientCredential 
+}
 
 function Invoke-ParseJwt {
     <#
@@ -998,33 +1156,39 @@ function Invoke-PrintTokenInfo {
 
     if (-not $NotParsed) {
         Write-Host "Audience: $($JWT.audience)"
-        Write-Host "Scope: $($JWT.scp)"
+        if ($JWT.scp) { Write-Host "Scope: $($JWT.scp)"}
         Write-Host "Client: $($JWT.client_app)"
-        Write-Host "Auth Methods: $($JWT.auth_methods)"
+        if ($JWT.auth_methods) { Write-Host "Auth Methods: $($JWT.auth_methods)"}
         Write-Host "CAE (xms_cc): $($JWT.xms_cc)"
         Write-Host "Tenant: $($JWT.tenant)"
-        Write-Host "User: $($JWT.user)"
-        Write-Host "IP: $($JWT.ip)"
+        if ($JWT.user) { Write-Host "User: $($JWT.user)"}
+        if ($JWT.ip) {Write-Host "IP: $($JWT.ip)"}
+        if ($JWT.sp_object_id) {Write-Host "SP Object ID: $($JWT.sp_object_id)"}
+        if ($JWT.client_app_id) {Write-Host "Client App ID: $($JWT.client_app_id)"}
+        if ($JWT.roles) {Write-Host "Roles: $($JWT.roles)"}
     } else {
         Write-Host "Scope: $($JWT.scope)"
     } 
-    Write-Host "Foci: $($JWT.foci)"
+
+    if ($JWT.foci) {Write-Host "Foci: $($JWT.foci)"} else {Write-Host "Foci: 0" }
+    if ($JWT.xms_cc) {Write-Host "CAE (xms_cc): $($JWT.xms_cc)"} else {Write-Host "CAE (xms_cc): 0" }
     Write-Host "Expires In: $($JWT.expires_in) seconds"
     Write-Host "Expiration Time: $($JWT.expiration_time)"
     Write-Host ""
 
     # Display full access and refresh tokens with clear delimiters
     Write-Host "Access Token:"
-    Write-Host "========================================"
+    Write-Host "==========================================================="
     Write-Host $JWT.access_token
-    Write-Host "========================================"
+    Write-Host "==========================================================="
     Write-Host ""
-
-    Write-Host "Refresh Token:"
-    Write-Host "========================================"
-    Write-Host $JWT.refresh_token
-    Write-Host "========================================"
-    write-host ""
+    if ($JWT.refresh_token) {
+        Write-Host "Refresh Token:"
+        Write-Host "==========================================================="
+        Write-Host $JWT.refresh_token
+        Write-Host "==========================================================="
+        write-host ""
+    }
     write-host "**********************************************************************"
     write-host ""
 }
@@ -1087,8 +1251,7 @@ function Invoke-Reporting {
 
 }
 
-
-Export-ModuleMember -Function Invoke-Auth,Invoke-Refresh,Invoke-DeviceCodeFlow,Invoke-ParseJwt,Show-ModuleHelp
+Export-ModuleMember -Function Invoke-Auth,Invoke-Refresh,Invoke-DeviceCodeFlow,Invoke-ParseJwt,Show-ModuleHelp,Invoke-ClientCredential
 
 
 function Show-ModuleBanner {
@@ -1100,7 +1263,6 @@ function Show-ModuleBanner {
 /_____/_/ /_/\__/_/   \__,_//_/  \____/_/|_|\___/_/ /_/_/  |_/_/\__,_/                                                                
 
 '@
-
     # Show Banner with color
     Write-Host $banner -ForegroundColor Cyan
     Write-Host ''
@@ -1115,6 +1277,9 @@ function Show-ModuleBanner {
     Write-Host ''
     Write-Host '$tokens = Invoke-Refresh -RefreshToken $tokens.refresh_token   ' -ForegroundColor Yellow
     Write-Host 'Get a new Access Token / Defaults to MS Graph API & Azure CLI as client' -ForegroundColor White
+    Write-Host ''
+    Write-Host '$tokens = Invoke-ClientCredential -ClientId $YourClientId -TenantId $YourTenantId -ClientSecret $YourCLientSecret  ' -ForegroundColor Yellow
+    Write-Host 'Authenticate as service principal / Defaults to MS Graph API' -ForegroundColor White
     Write-Host ''
     Write-Host 'Invoke-ParseJwt -JWT $tokens.access_token            ' -ForegroundColor Yellow
     Write-Host 'Parses the JWT' -ForegroundColor White
