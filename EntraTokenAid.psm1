@@ -52,17 +52,13 @@ function Invoke-Auth {
     .PARAMETER HttpTimeout
     Specifies the time in seconds the http should listenting for requests.
     Useful for automated testing in combination with -DisablePrompt.
-    Default: `60`
+    Default: `180`
 
     .PARAMETER Tenant
     Specifies the tenant to authenticate against. Options include:
     - `organizations` (for multi-tenant apps)
     - A specific tenant ID
     Default: `organizations`
-
-    .PARAMETER HtmlOut
-    Specifies whether token information should be displayed in the browser during the authentication flow. 
-    Default: `$true`
 
     .PARAMETER TokenOut
     Outputs the access and refresh tokens to the console upon successful authentication.
@@ -114,13 +110,12 @@ function Invoke-Auth {
     #>
     param (
         [Parameter(Mandatory=$false)][int]$Port = 13824,
-        [Parameter(Mandatory=$false)][int]$HttpTimeout = 60,
+        [Parameter(Mandatory=$false)][int]$HttpTimeout = 180,
         [Parameter(Mandatory=$false)][string]$ClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
         [Parameter(Mandatory=$false)][string]$Scope = "default offline_access",
         [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
         [Parameter(Mandatory=$false)][string]$RedirectURL = "http://localhost:$($Port)",
-        [Parameter(Mandatory=$false)][bool]$HtmlOut = $true,
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$DisablePrompt = $false,
@@ -129,12 +124,13 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][switch]$Reporting = $false
     )
 
+    $AuthError = $false
     # Http Server
-    $http = [System.Net.HttpListener]::new() 
-    $http.Prefixes.Add("http://localhost:$Port/")
+    $HttpListener = [System.Net.HttpListener]::new() 
+    $HttpListener.Prefixes.Add("http://localhost:$Port/")
 
     Try {
-        $http.Start()
+        $HttpListener.Start()
     } Catch {
         $HttpStartError = $_
         if ($HttpStartError -match "because it conflicts with an existing registration on the machine") {
@@ -144,14 +140,82 @@ function Invoke-Auth {
             write-host "[!] ERROR: $HttpStartError"
         }
     }
-    
-    if ($http.IsListening) {
-        write-host "[+] HTTP server running on http://localhost:$Port"
-        write-host "[i] Listening for OAuth callback for $HttpTimeout s (HttpTimeout value) "
-        write-host "[i] Call http://localhost:$Port without any parameter to stop manually"
         
-        #Convert timeout to MS
-        $HttpTimeout = $HttpTimeout * 1000 
+    if ($HttpListener.IsListening) {
+        write-host "[+] HTTP server running on http://localhost:$Port/"
+        write-host "[i] Listening for OAuth callback for $HttpTimeout s (HttpTimeout value) "
+        write-host "[i] Press Ctrl+C to stop manually."
+
+        # Variable to control the server loop
+        $KeepRunning = $true
+
+        # Runspace for the HTTP server
+        $Runspace = [runspacefactory]::CreateRunspace()
+        $Runspace.Open()
+
+        # Shared object for communication
+        $RequestQueue = [System.Collections.Concurrent.ConcurrentQueue[PSObject]]::new()
+
+        # Script block for the HTTP server loop
+        $ScriptBlock = {
+            param(
+                    $HttpListener,
+                    [ref]$KeepRunning,
+                    $RequestQueue
+                )
+
+
+            #Outer while loop to keep the server running in case of errors
+            while ($KeepRunning.Value -and $HttpListener.IsListening) {
+                try {
+                    while ($KeepRunning.Value -and $HttpListener.IsListening) {
+
+                        $Context = $HttpListener.GetContext()
+
+                        # Retrieve request information and share with main script
+                        $Request = $Context.Request
+                        $RequestQueue.Enqueue($Request)
+
+                        # Response handeling
+                        if ($Request.HttpMethod -eq 'GET' -and $Request.QueryString -match "\bcode\b") {
+                            [string]$HtmlContent = "
+                            <!DOCTYPE html>
+                                <head>
+                                    <title>OAuth Code Received</title>
+                                        <style>
+                                            body { font-family: monospace; background: #1b1b3a; color: #a0b0d0; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                                            .container { background: #2a2a50; padding: 20px; border-radius: 8px; width: 400px; box-shadow: 0 0 15px rgba(160,176,208,0.3); }
+                                            .field { margin: 12px 0; }
+                                            .label { font-weight: bold; font-size: 18px; color:rgb(224, 219, 218); }
+                                        </style>
+                                </head>
+                                <body>
+                                    <div class='container'><div class='field'><span class='label'>Received an OAuth Authorization Code<br>You can now close this tab.</span></div></div>
+                                </body>
+                            </html>
+                            "
+                            #Response to the HTTP request
+                            $Response = $Context.Response
+                            $ResponseOutput = [System.Text.Encoding]::UTF8.GetBytes($HtmlContent)
+                            $Response.OutputStream.Write($ResponseOutput, 0, $ResponseOutput.Length)
+                            $Response.OutputStream.Close()
+
+                        } else {
+                            [string]$HtmlContent = "<!DOCTYPE html>Nothing to see here.</html>"
+                            $Response = $Context.Response
+                            $Response.StatusCode = "404"
+                            $ResponseOutput = [System.Text.Encoding]::UTF8.GetBytes($HtmlContent)
+                            $Response.OutputStream.Write($ResponseOutput, 0, $ResponseOutput.Length)
+                            $Response.OutputStream.Close()
+                        }
+
+                    }
+                } catch {
+                    # Share error data
+                    $RequestQueue.Enqueue($_)
+                }
+            }
+        }
         
         #Construct Scope
         $ApiScopeUrl = "https://$Api/.$Scope"
@@ -178,300 +242,266 @@ function Invoke-Auth {
             $Url += '&claims={"access_token": {"xms_cc": {"values": ["CP1"]}}}'
         }
 
+        # Create a PS instance and assign the script block to it
+        $PSInstance = [powershell]::Create()
+        $PSInstance.AddScript($ScriptBlock).AddArgument($HttpListener).AddArgument([ref]$KeepRunning).AddArgument($RequestQueue) | Out-Null
+        $PSInstance.Runspace = $Runspace
+        $PSInstance.BeginInvoke() | Out-Null
+
+        # Main loop to process output from the shared queue
+        $StartTime = [datetime]::Now
+        $Proceed = $true
         # Start auth flow in Browser
         Start-Process $Url
 
-        #Waiting for requests
-        while ($http.IsListening) {
-
-            # Use BeginGetContext to listen asynchronously
-            $asyncResult = $http.BeginGetContext($null, $null)
-
-            # Wait for a request or timeout
-            if ($asyncResult.AsyncWaitHandle.WaitOne($HttpTimeout)) {
-
-                # Request received within the timeout
-                $context = $http.EndGetContext($asyncResult)
-
-                #Check if the request contains code parameter
-                if ($context.Request.HttpMethod -eq 'GET' -and $($context.Request.QueryString) -match "\bcode\b" ) {
-
-                    write-host "[+] Got OAuth callback request containing CODE"
-                    $QueryString = $($context.Request.QueryString)
-                    $RawUrl =  $($context.Request.RawUrl)
-
-                    #Get content of the GET parameters
-                    $QueryString = $RawUrl  -replace '^.*\?', ''
-                    $Params = $QueryString -split '&'
-                    $QueryParams = @{}
-
-                    # Iterate over each parameter and split into key-value pairs
-                    foreach ($Param in $Params) {
-                        $Key, $Value = $Param -split '=', 2
-                        $QueryParams[$Key] = $Value
-                    }
-                    $Code = $QueryParams["code"]
-                    $StateResponse = $QueryParams["state"]
-                    
-                    if ($StateResponse -ne $State) {
-                        Write-Host "[!] Error: Wrong state reveived from IDP. Aborting..."
-                        $AuthError = $true
-                        break
-                    }
-
-                    write-host "[*] Calling the token endpoint"
-
-                    #Define headers (emulate Azure CLI)
-                    $Headers = @{
-                        "User-Agent" = "python-requests/2.32.3"
-                        "X-Client-Sku" = "MSAL.Python"
-                        "X-Client-Ver" = "1.31.0"
-                        "X-Client-Os" = "win32"
-                    }
-
-                    #Define Body
-                    $Body = @{
-                        grant_type   = "authorization_code"
-                        client_id    = "$ClientID"
-                        scope        = $ApiScopeUrl
-                        code         = $Code
-                        redirect_uri = "http://localhost:$Port/"
-                        client_info  = 1
-                    }
-
-                    #Add PKCE if not disabled
-                    if (-not $DisablePKCE) {
-                        $Body.Add("code_verifier", $PKCE)
-                    }
-
-                    #Check if CAE is deactivated
-                    if (-not $DisableCAE) {
-                        $Body.Add("claims", '{"access_token": {"xms_cc": {"values": ["CP1"]}}}')
-                    }
-
-                    Try {
-                        # Call the token endpoint to get the tokens
-                        $tokens = Invoke-RestMethod 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token' -Method POST -Body $Body -Headers $Headers
-                    } Catch {
-                        #Error Handling for initial request
-                        $TokenRequestError = $_ | ConvertFrom-Json
-                        if ($TokenRequestError.error -eq "invalid_grant") {
-                            Write-Host "[!] The authorization code or PKCE code verifier is invalid or has expired. Aborting..."
-                        } elseif ($TokenRequestError.error -eq "invalid_request") {
-                            Write-Host "[!] Protocol error, such as a missing required parameter. Aborting..."
-
-                        } elseif ($TokenRequestError.error -eq "unauthorized_client") {
-                            Write-Host "[!] The authenticated client isn't authorized to use this authorization grant type.. Aborting..."
-
-                        } elseif ($TokenRequestError.error -eq "invalid_resource") {
-                            Write-Host "[!] The target resource is invalid because it doesn't exist, Microsoft Entra ID can't find it, or it's not correctly configured. Aborting..."
-
-                        } elseif ($TokenRequestError.error -eq "consent_required") {
-                            Write-Host "[!] The request requires user consent.. Aborting..."
-
-                        } elseif ($TokenRequestError.error -eq "invalid_scope") {
-                            Write-Host "[!] The scope requested by the app is invalid... Aborting..."
-
-                        } else {
-                            Write-Host "[!] Unknown error: Aborting...."
-                            Write-Host "[!] Error: $($TokenRequestError.error)"
-                            Write-Host "[!] Error Description: $($TokenRequestError.error_description)"
-
-                        }
-                        $AuthError = $true
-                        break
-                    }
-
-                    #Check if answer contains tokens
-                    if ($tokens.access_token -and $tokens.refresh_token) {
-                        Write-Host "[+] Got an access token and a refresh token"
-
-                        $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
-
-                        if (-not $DisableJwtParsing) {
-                            #Parse JWT
-                            Try {
-                                # Parse the token
-                                $JWT = Invoke-ParseJwt -jwt $tokens.access_token
-                            } Catch {
-                                $JwtParseError = $_ 
-                                Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                                Write-Host "[!] Aborting...."
-                                $AuthError = $true
-                                break
-                            }
-
-                            #Add additonal infos to token object
-                            $tokens | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp
-                            $tokens | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
-                            $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
-                            $tokens | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname
-                            $tokens | Add-Member -NotePropertyName client_app_id -NotePropertyValue $ClientID
-                            $tokens | Add-Member -NotePropertyName auth_methods -NotePropertyValue $JWT.amr
-                            $tokens | Add-Member -NotePropertyName ip -NotePropertyValue $JWT.ipaddr
-                            $tokens | Add-Member -NotePropertyName uti -NotePropertyValue $JWT.uti
-                            $tokens | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
-                            $tokens | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
-                            if ($null -ne $JWT.xms_cc) {
-                                $tokens | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
-                                $xms_cc = $true
-                            } else {
-                                $xms_cc = $false
-                            }
-                            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
-                        } else {
-                            Write-Host "[i] Expires at: $($tokens.expiration_time)"
-                        }
-                        
-                        
-                        #HTML output for the browers shown in the interactive logon
-                        [string]$html = "
-                            <!DOCTYPE html>
-                            <head>
-                                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-                                <title>Your Tokens</title>
-                                    <style>
-                                        body{font-family:'Courier New',monospace;background:#1b1b3a;color:#a0b0d0;margin:0;padding:0;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden}
-                                        .container{background:#2a2a50;padding:20px;border-radius:8px;width:1600px;max-height:80vh;overflow-y:auto;box-shadow:0 0 15px rgba(160,176,208,0.3)}
-                                        .field{margin:12px 0}
-                                        .label{font-weight:bold;color:#7fbfff}
-                                        .value{color:#d1d7e1;word-wrap:break-word;word-break:break-all}
-                                        .token-scope{display:block;white-space:pre-line;line-height:1.5}
-                                        .token-value{display:block;margin-top:5px;word-wrap:break-word;word-break:break-all}
-                                        .footer{font-size:15px;text-align:center;color:#7f8d9c;margin-top:20px}
-                                        ::-webkit-scrollbar{width:8px;height:8px}
-                                        ::-webkit-scrollbar-thumb{background:#7fbfff;border-radius:10px}
-                                        ::-webkit-scrollbar-track{background:#2a2a50;border-radius:10px}
-                                        ::-webkit-scrollbar-thumb:hover{background:#6495ED}
-                                    </style>
-                            </head>
-                            <body>
-                                <div class='container'>
-                                    <div class='field'><span class='label'>Audience: </span><span class='value'>$($tokens.audience)</span></div>
-                                    <div class='field'><span class='label'>Scope: </span><span class='value'>$($tokens.scp)</span></div>
-                                    <div class='field'><span class='label'>Auth Methods: </span><span class='value'>$($tokens.auth_methods)</span></div>
-                                    <div class='field'><span class='label'>CAE (xms_cc): </span><span class='value'>$($xms_cc)</span></div>
-                                    <div class='field'><span class='label'>Client: </span><span class='value'>$($tokens.client_app) $ClientID</span></div>
-                                    <div class='field'><span class='label'>Foci: </span><span class='value'>$($tokens.foci)</span></div>
-                                    <div class='field'><span class='label'>Tenant: </span><span class='value'>$($tokens.tenant)</span></div>
-                                    <div class='field'><span class='label'>User: </span><span class='value'>$($tokens.user)</span></div>
-                                    <div class='field'><span class='label'>IP: </span><span class='value'>$($tokens.ip)</span></div>
-                                    <div class='field'><span class='label'>Expires In: </span><span class='value'>$($tokens.expires_in)s ($($tokens.expiration_time))</span></div>
-                                    <div class='field'><span class='label'>Access Token: </span><span class='token-value'>$($tokens.access_token)</span></div>
-                                    <div class='field'><span class='label'>Refresh Token: </span><span class='token-value'>$($tokens.refresh_token)</span></div>
-                                    <div class='footer'>Sensitive information, handle with care!</div>
-                                </div>
-                            </body>
-                            </html>
-                        "
-                        $AuthError = $false
-                    } else {
-                        Write-Host "[!] Error: Somehting went wrong."
-                        $AuthError = $true
-                        [string]$html = "
-                        <!DOCTYPE html>
-                            <head>
-                                <title>OAuth Token Endpoint Error</title>
-                                    <style>
-                                        body { font-family: monospace; background: #1b1b3a; color: #a0b0d0; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
-                                        .container { background: #2a2a50; padding: 20px; border-radius: 8px; width: 800px; box-shadow: 0 0 15px rgba(160,176,208,0.3); }
-                                        .field { margin: 12px 0; }
-                                        .label { font-weight: bold; color: #ff6f61; }
-                                    </style>
-                            </head>
-                            <body>
-                                <div class='container'><div class='field'><span class='label'>Response from token ednpoint: Unknown error. The answer does not contains any tokens.</span></div></div>
-                            </body>
-                        </html>
-                        "
-                    }
-
-                    if ($HtmlOut) {
-                        #Response to the HTTP request
-                        $buffer = [System.Text.Encoding]::UTF8.GetBytes($html) 
-                        $context.Response.ContentLength64 = $buffer.Length
-                        $context.Response.OutputStream.Write($buffer, 0, $buffer.Length) 
-                        $context.Response.OutputStream.Close()
-                        Start-Sleep 2
-                    }
-
-                    #End Loop
-                    break
-
-                } elseif ($context.Request.HttpMethod -eq 'GET' -and $($context.Request.QueryString) -match "\berror\b") {
-                    write-host "[!] Got OAuth callback request containing an ERROR"
-                    $QueryString = $($context.Request.QueryString)
-                    $RawUrl =  $($context.Request.RawUrl)
-
-                    #Get content of the GET parameters
-                    $QueryString = $RawUrl  -replace '^.*\?', ''
-                    $Params = $QueryString -split '&'
-                    $QueryParams = @{}
-
-                    # Iterate over each parameter and split into key-value pairs
-                    foreach ($Param in $Params) {
-                        $Key, $Value = $Param -split '=', 2
-                        $QueryParams[$Key] = $Value
-                    }
-
-                    #Define errors
-                    $ErrorShort = $QueryParams["error"]
-                    $ErrorDescription = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_description"]) 
-                    $MoreInfo = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_uri"]) 
-
-                    write-host "[!] Error: $ErrorShort"
-                    write-host "[!] $ErrorDescription"
-                    write-host "[!] More info: $MoreInfo"
-
-                    #HTML Error message
-                    [string]$html = "
-                    <!DOCTYPE html>
-                        <head>
-                            <title>OAuth Callback Error</title>
-                                <style>
-                                    body { font-family: monospace; background: #1b1b3a; color: #a0b0d0; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
-                                    .container { background: #2a2a50; padding: 20px; border-radius: 8px; width: 800px; box-shadow: 0 0 15px rgba(160,176,208,0.3); }
-                                    .field { margin: 12px 0; }
-                                    .label { font-weight: bold; color: #ff6f61; }
-                                    .value { color: #d1d7e1; word-wrap: break-word; }
-                                    .link { color: #7fbfff; text-decoration: none; }
-                                    .link:hover { text-decoration: underline; }
-                                </style>
-                        </head>
-                    <body>
-                        <div class='container'>
-                            <div class='field'><span class='label'>Error: </span><span class='value'>$ErrorShort</span></div>
-                            <div class='field'><span class='label'>Description: </span><span class='value'>$ErrorDescription</span></div>
-                            <div class='field'><span class='label'>More Information: </span><a href=$MoreInfo class='link' target='_blank'>$MoreInfo</a></div>
-                        </div>
-                    </body>
-                    </html>
-                    "
-                    if ($HtmlOut) {
-                        #Response to the HTTP request
-                        $buffer = [System.Text.Encoding]::UTF8.GetBytes($html) 
-                        $context.Response.ContentLength64 = $buffer.Length
-                        $context.Response.OutputStream.Write($buffer, 0, $buffer.Length) 
-                        $context.Response.OutputStream.Close()
-                        Start-Sleep 2
-                    }
-
+        #Main Flow which process the received web request
+        try {
+            while ($Proceed) {
+                Start-Sleep -Milliseconds 500
+    
+                # Check if the runtime exceeds the timeout (if set)
+                if ($HttpTimeout -gt 0 -and ([datetime]::Now - $StartTime).TotalSeconds -ge $HttpTimeout) {
+                    Write-Host "[!] Runtime limit reached. Stopping the server..."
                     $AuthError = $true
-                    break
-                
-                } else {
+                    $Proceed = $false
 
-                    #Fail safe to stop the HTTP server
-                    write-host "[!] Received a wrong request. Aborting..."
-                    $AuthError = $true
+                    #Create Error Object to use in reporting
+                    $ErrorDetails = [PSCustomObject]@{
+                        ClientID    = $ClientID
+                        ErrorLong   = "Timeout limit reached"
+                    }
                     break
                 }
-            } else {
-                # HTTP Timeout occurred
-                Write-Host "[!] No request received within the timeout period."
-                $AuthError = $true
-                break
+    
+                # Process output from the shared queue
+                $Request = $null
+                while ($RequestQueue.TryDequeue([ref]$Request) -and $Proceed) {
+
+                    #Null check to avoid the script crashing
+                    if ($Request.HttpMethod -eq 'GET' -and $Request.QueryString -match "\bcode\b") {
+
+                        write-host "[+] Got OAuth callback request containing CODE"
+
+                        $RawUrl =  $($Request.RawUrl)
+    
+                        #Get content of the GET parameters
+                        $QueryString = $RawUrl  -replace '^.*\?', ''
+                        $Params = $QueryString -split '&'
+                        $QueryParams = @{}
+    
+                        # Iterate over each parameter and split into key-value pairs
+                        foreach ($Param in $Params) {
+                            $Key, $Value = $Param -split '=', 2
+                            $QueryParams[$Key] = $Value
+                        }
+                        $Code = $QueryParams["code"]
+                        $StateResponse = $QueryParams["state"]
+                        
+                        if ($StateResponse -ne $State) {
+                            write-host "[!] Error: Wrong state reveived from IDP. Aborting..."
+                            write-host "[!] Error: Received $StateResponse but exepected $State"
+                            $AuthError = $true
+                            $Proceed = $false
+                            $ErrorDetails = [PSCustomObject]@{
+                                ClientID    = $ClientID
+                                ErrorLong   = "Wrong state reveived from IDP"
+                            }
+                            break
+                        }
+    
+                        write-host "[*] Calling the token endpoint"
+    
+                        #Define headers (emulate Azure CLI)
+                        $Headers = @{
+                            "User-Agent" = "python-requests/2.32.3"
+                            "X-Client-Sku" = "MSAL.Python"
+                            "X-Client-Ver" = "1.31.0"
+                            "X-Client-Os" = "win32"
+                        }
+    
+                        #Define Body
+                        $Body = @{
+                            grant_type   = "authorization_code"
+                            client_id    = "$ClientID"
+                            scope        = $ApiScopeUrl
+                            code         = $Code
+                            redirect_uri = "http://localhost:$Port/"
+                            client_info  = 1
+                        }
+    
+                        #Add PKCE if not disabled
+                        if (-not $DisablePKCE) {
+                            $Body.Add("code_verifier", $PKCE)
+                        }
+    
+                        #Check if CAE is deactivated
+                        if (-not $DisableCAE) {
+                            $Body.Add("claims", '{"access_token": {"xms_cc": {"values": ["CP1"]}}}')
+                        }
+    
+                        Try {
+                            # Call the token endpoint to get the tokens
+                            $tokens = Invoke-RestMethod 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token' -Method POST -Body $Body -Headers $Headers
+                        } Catch {
+                            #Error Handling for initial request
+                            $TokenRequestError = $_ | ConvertFrom-Json
+                            if ($TokenRequestError.error -eq "invalid_grant") {
+                                Write-Host "[!] The authorization code or PKCE code verifier is invalid or has expired. Aborting..."
+                            } elseif ($TokenRequestError.error -eq "invalid_request") {
+                                Write-Host "[!] Protocol error, such as a missing required parameter. Aborting..."
+    
+                            } elseif ($TokenRequestError.error -eq "unauthorized_client") {
+                                Write-Host "[!] The authenticated client isn't authorized to use this authorization grant type.. Aborting..."
+    
+                            } elseif ($TokenRequestError.error -eq "invalid_resource") {
+                                Write-Host "[!] The target resource is invalid because it doesn't exist, Microsoft Entra ID can't find it, or it's not correctly configured. Aborting..."
+    
+                            } elseif ($TokenRequestError.error -eq "consent_required") {
+                                Write-Host "[!] The request requires user consent.. Aborting..."
+    
+                            } elseif ($TokenRequestError.error -eq "invalid_scope") {
+                                Write-Host "[!] The scope requested by the app is invalid... Aborting..."
+    
+                            } else {
+                                Write-Host "[!] Unknown error: Aborting...."
+                                Write-Host "[!] Error: $($TokenRequestError.error)"
+                                Write-Host "[!] Error Description: $($TokenRequestError.error_description)"
+                            }
+
+                            #Create Error Object to use in reporting
+                            $ErrorDetails = [PSCustomObject]@{
+                                ClientID    = $ClientID
+                                ErrorLong   = $($TokenRequestError.error_description)
+                            }
+                            $AuthError = $true
+                            $Proceed = $false
+                            break
+                        }
+    
+                        #Check if answer contains tokens
+                        if ($tokens.access_token -and $tokens.refresh_token) {
+                            Write-Host "[+] Got an access token and a refresh token"
+    
+                            $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+    
+                            if (-not $DisableJwtParsing) {
+                                #Parse JWT
+                                Try {
+                                    # Parse the token
+                                    $JWT = Invoke-ParseJwt -jwt $tokens.access_token
+                                } Catch {
+                                    $JwtParseError = $_ 
+                                    Write-Host "[!] JWT Parse error: $($JwtParseError)"
+                                    Write-Host "[!] Aborting...."
+
+                                    #Create Error Object to use in reporting
+                                    $ErrorDetails = [PSCustomObject]@{
+                                        ClientID    = $ClientID
+                                        ErrorLong   = $JwtParseError
+                                    }
+
+                                    $AuthError = $true
+                                    $Proceed = $false
+                                    break
+                                }
+    
+                                #Add additonal infos to token object
+                                $tokens | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp
+                                $tokens | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
+                                $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
+                                $tokens | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname
+                                $tokens | Add-Member -NotePropertyName client_app_id -NotePropertyValue $ClientID
+                                $tokens | Add-Member -NotePropertyName auth_methods -NotePropertyValue $JWT.amr
+                                $tokens | Add-Member -NotePropertyName ip -NotePropertyValue $JWT.ipaddr
+                                $tokens | Add-Member -NotePropertyName uti -NotePropertyValue $JWT.uti
+                                $tokens | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
+                                $tokens | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
+                                if ($null -ne $JWT.xms_cc) {
+                                    $tokens | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
+                                    $xms_cc = $true
+                                } else {
+                                    $xms_cc = $false
+                                }
+                                Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+                            } else {
+                                Write-Host "[i] Expires at: $($tokens.expiration_time)"
+                            }
+                            
+                            $AuthError = $false
+                            $Proceed = $false
+
+                        } else {
+                            Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+                            $AuthError = $true
+                            $Proceed = $false
+                            #Create Error Object to use in reporting
+                            $ErrorDetails = [PSCustomObject]@{
+                                ClientID    = $ClientID
+                                ErrorLong   = "The answer from the token endpoint do not contains tokens."
+                            }
+                            break
+                        }
+    
+    
+
+
+                    } elseif ($Request.HttpMethod -eq 'GET' -and $($Request.QueryString) -match "\berror\b") {
+                        write-host "[!] Got OAuth callback request containing an ERROR"
+                        $QueryString = $($Request.QueryString)
+                        $RawUrl =  $($Request.RawUrl)
+    
+                        #Get content of the GET parameters
+                        $QueryString = $RawUrl  -replace '^.*\?', ''
+                        $Params = $QueryString -split '&'
+                        $QueryParams = @{}
+    
+                        # Iterate over each parameter and split into key-value pairs
+                        foreach ($Param in $Params) {
+                            $Key, $Value = $Param -split '=', 2
+                            $QueryParams[$Key] = $Value
+                        }
+    
+                        #Define errors
+                        $ErrorShort = $QueryParams["error"]
+                        $ErrorDescription = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_description"]) 
+                        $MoreInfo = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_uri"]) 
+    
+                        write-host "[!] Error in OAuth Callback: $ErrorShort"
+                        write-host "[!] Description: $ErrorDescription"
+                        write-host "[!] More info: $MoreInfo"
+
+                        #Handle errors
+                        $AuthError = $true
+                        $Proceed = $false
+
+                        #Create Error Object to use in reporting
+                        $ErrorDetails = [PSCustomObject]@{
+                            ClientID    = $ClientID
+                            ErrorLong   = $MoreInfo
+                        }
+
+                        break
+
+                    } elseif ($null -ne $Request -and $Request -is [System.Net.HttpListenerRequest]) {
+                        Write-Host "[*] Got request without OAuth Code: $($Request.HttpMethod) $($Request.RawUrl))"
+                    } else {
+                        Write-Host "[!] Request caused an error: $Request"
+                    }
+                    
+                }
             }
+    
+        } finally {
+            #Cleaning up
+            Write-Host "[*] Stopping the server..."
+            $KeepRunning = $false
+            Start-Sleep -Milliseconds 500 # Allow the loop in the runspace to complete
+            $HttpListener.Stop()
+            $PSInstance.Stop()
+            $PSInstance.Dispose()
+            $Runspace.Close()
+            $Runspace.Dispose()
+            Write-Host "[*] Server stopped."
         }
 
         if (-Not $AuthError) {
@@ -479,19 +509,20 @@ function Invoke-Auth {
             if ($TokenOut) {
                 invoke-PrintTokenInfo -jwt $tokens -NotParsed $DisableJwtParsing
             }
-
+            
             #Check if report file should be written
             if ($Reporting) {
                 Invoke-Reporting -jwt $tokens -OutputFile "Auth_report.csv"
             }
 
-            write-host "[*] Stopping HTTP Server"
-            $http.Stop() 
-            Return $tokens
+        } else {
+            if ($Reporting) {
+                Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_error.csv"
+            }
         }
-    
-        write-host "[*] Stopping HTTP Server"
-        $http.Stop()
+
+        Return $tokens
+
     } else {
         write-host "[!] Error starting the HTTP Server!"
     }
