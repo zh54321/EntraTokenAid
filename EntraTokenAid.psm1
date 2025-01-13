@@ -27,7 +27,7 @@
 function Invoke-Auth {
     <#
     .SYNOPSIS
-    Performs OAuth 2.0 authentication using the Authorization Code Flow for Microsoft Entra.
+    Performs OAuth 2.0 authentication using the Authorization Code Flow for Microsoft Entra ID.
 
     .DESCRIPTION
     The `Invoke-Auth` function facilitates OAuth 2.0 Authorization Code Flow to get access and refresh tokens. It supports flexible configuration options, including scope, tenant, and client ID customization. The function can optionally output tokens, parse JWTs, or suppress PKCE, use CAE, and other standard authentication features. 
@@ -128,7 +128,6 @@ function Invoke-Auth {
     # Http Server
     $HttpListener = [System.Net.HttpListener]::new() 
     $HttpListener.Prefixes.Add("http://localhost:$Port/")
-
     Try {
         $HttpListener.Start()
     } Catch {
@@ -164,7 +163,6 @@ function Invoke-Auth {
                     $RequestQueue
                 )
 
-
             #Outer while loop to keep the server running in case of errors
             while ($KeepRunning.Value -and $HttpListener.IsListening) {
                 try {
@@ -176,7 +174,7 @@ function Invoke-Auth {
                         $Request = $Context.Request
                         $RequestQueue.Enqueue($Request)
 
-                        # Response handeling
+                        # Response handeling in case there is a code parameter
                         if ($Request.HttpMethod -eq 'GET' -and $Request.QueryString -match "\bcode\b") {
                             [string]$HtmlContent = "
                             <!DOCTYPE html>
@@ -216,7 +214,8 @@ function Invoke-Auth {
                 }
             }
         }
-        
+
+
         #Construct Scope
         $ApiScopeUrl = "https://$Api/.$Scope"
 
@@ -951,6 +950,10 @@ function Invoke-ClientCredential {
         .PARAMETER Api
         Specifies the target API for the authentication request.
         Default: `graph.microsoft.com`
+
+        .PARAMETER Scope
+        Specifies the API permissions (scopes) to request during authentication. Multiple scopes should be space-separated.
+        Default: `default`
         
         .PARAMETER DisableJwtParsing
         Disables parsing of the JWT access token. When set, the token is returned as-is without any additional information.
@@ -974,9 +977,9 @@ function Invoke-ClientCredential {
         Authenticates with the specified client ID and secret, targeting the default Microsoft Graph API.
 
         .EXAMPLE
-        Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id" -Api "management.azure.com" -Scope "user.read"
+        Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id" -Api "management.azure.com"
 
-        Authenticates with the specified client credentials and retrieves a token for the Azure Management API with the `user.read` scope.
+        Authenticates with the specified client credentials and retrieves a token for the Azure Management API.
 
         .EXAMPLE
         Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -Reporting
@@ -1003,6 +1006,7 @@ function Invoke-ClientCredential {
     $Headers=@{}
     $Headers["User-Agent"] = $UserAgent
     
+    #Prompt for client credential if not defined
     if (-not $ClientSecret) {
         $ClientSecretSecure = Read-Host -Prompt "Enter the client secret" -AsSecureString
         if ($ClientSecretSecure -is [System.Security.SecureString]) {

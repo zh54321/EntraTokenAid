@@ -29,10 +29,6 @@ Performing an authentication and showing the gathered tokens and other useful in
 
 ![alt text](images/tokens_console.png "Title")
 
-Tokens and useful JWT claims are directly displayed in the OAuth callback request on the local server:
-
-![alt text](images/tokens_browser.png "Title")
-
 Using the obtained refresh token to get new tokens on another API and using another client (Azure PowerShell):
 
 ![alt text](images/tokens_refresh.png "Title")
@@ -55,12 +51,13 @@ Using the obtained refresh token to get new tokens on another API and using anot
 
 The module includes the following commands:
 
-| Command                  | Description                                                      |Default behavior|
-|--------------------------|------------------------------------------------------------------|----|
-| `Invoke-Auth`            | Perform authentication (auth code flow) and retrieve tokens.          |API: MS Graph / Client: Azure CLI / CAE: Yes|
-| `Invoke-DeviceCodeFlow`  | Authenticate via the device code flow.|API: MS Graph / Client: Azure CLI|
-| `Invoke-Refresh`         | Get a new access token using the refresh token. |API: MS Graph / Client: Azure CLI|
-| `Invoke-ParseJwt`        | Decode a JWT and display its body properties.                      |-|
+| Command                   | Description                                                      |Default behavior|
+|---------------------------|------------------------------------------------------------------|----|
+| `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          |API: MS Graph / Client: Azure CLI / CAE: Yes|
+| `Invoke-DeviceCodeFlow`   | Authenticate via the device code flow.|API: MS Graph / Client: Azure CLI|
+| `Invoke-ClientCredential` | Authenticate using the client credential flow.                      |API: MS Graph|
+| `Invoke-Refresh`          | Get a new access token using the refresh token. |API: MS Graph / Client: Azure CLI|
+| `Invoke-ParseJwt`         | Decode a JWT and display its body properties.                      |-|
 
 ---
 
@@ -81,7 +78,6 @@ All parameters are optional.
 | **Api**              | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
 | **Port**             | Local port to listen on for the OAuth callback.                             | `13824`                                           |
-| **HtmlOut**          | Display the tokens in the OAuth callback in a browser.                      | `true`                                            |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
 | **RedirectURL**      | URL for the OAuth redirect.                                                 | `http://localhost:%PORT%`                         |
 | **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
@@ -125,7 +121,7 @@ Invoke-GraphRecon -Tokens $tokens -PermissionEnum
 ```
 Authenticate on Azure Resource Manager as Azure Powershell, refresh to Office API as Microsoft Office:
 ```powershell
-$tokens =invoke-auth -ClientID 1950a258-227b-4e31-a9cf-717495945fc2 -api management.azure.com
+$tokens = invoke-auth -ClientID 1950a258-227b-4e31-a9cf-717495945fc2 -api management.azure.com
 $tokensOffice = invoke-refresh -RefreshToken $tokens.refresh_token -ClientID d3590ed6-52b3-4102-aeff-aad2292ab01c -api manage.office.com
 ```
 
@@ -187,6 +183,46 @@ Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHoun
 ```powershell
 $Tokens = Invoke-DeviceCodeFlow
 .\azurehound.exe --refresh-token $Tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
+```
+
+---
+
+### `Invoke-ClientCredential`
+
+Authenticate using the client credential flow. Atm. only client secrets are support.
+
+#### Parameters
+All parameters are optional.
+| Parameter              | Description                                                                 | Default Value                                     |
+|----------------------  |-----------------------------------------------------------------------------|---------------------------------------------------|
+| **ClientID**           | Specifies the clientID for authentication.                                  | -|
+| **ClientSecret**       | Client secret of the application (secure prompt if empty).                         | -|
+| **Tenant**             | Specific tenant id.                                                         | `-`                                   |
+| **Api**                | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
+| **Scope**              | Scopes (space sperated) to be requested.                                    | `default`                          |
+| **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
+| **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
+| **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
+| **Reporting**          | If provided, enables detailed token logging to csv.                         | `false`                                           |  
+
+
+#### Example
+
+Authenticates with the specified client ID and secret, targeting the default Microsoft Graph API.
+```powershell
+Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id"
+```
+Authenticates with the specified client credentials and retrieves a token for the Azure Management API.
+```powershell
+Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id" -Api "management.azure.com"
+```
+Prompts for the client secret securely, authenticates, and logs detailed results to a CSV file.
+```powershell
+Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -Reporting
+```
+Connect to MS Graph API:
+```powershell
+Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
 ```
 
 ---
@@ -300,6 +336,23 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+
+### 2025-01-13
+#### Added
+- Invoke-ClientCredential: Client credentials flow (atm. only by using credentials)
+
+#### Changed
+- Invoke Auth: Major overhault of the local HTTP Server:
+  - Can now stopped using Ctrl +C.
+  - Better HTTP server error handling for improved stability
+  - Improved stability
+
+#### Fixed
+- Invoke Auth: CAE issue when using Firefox
+
+#### Removed
+- Invoke Auth: Token details are not displayed in HTML anymore (because of HTTP-Server changes).
+
 
 ### 2024-12-30
 #### Added
