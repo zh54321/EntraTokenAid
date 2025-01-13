@@ -239,7 +239,7 @@ function Invoke-Auth {
 
         #Check if CAE is wanted
         if (-not $DisableCAE) {
-            $Url += '&claims={"access_token": {"xms_cc": {"values": ["CP1"]}}}'
+            $Url += '&claims={%22access_token%22:%20{%22xms_cc%22:%20{%22values%22:%20[%22CP1%22]}}}'
         }
 
         # Create a PS instance and assign the script block to it
