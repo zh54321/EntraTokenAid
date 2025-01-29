@@ -266,11 +266,66 @@ Refresh to a specific API (e.g., Azure Resource Manager):
 Invoke-Refresh -RefreshToken $Tokens.refresh_token -Api management.azure.com
 ```
 
-Refresh to AzurePIM Application using the ```broker client id``` of the Azure portal*:
+Refresh to ADIbizaUX client using the ```broker client id``` of the Azure portal (to use pre-consted permission)*:
 ```powershell
-Invoke-Refresh -RefreshToken $tokensMC.refresh_token -clientid 7655d621-3c86-4a9a-92f8-47244f293b55 -api graph.microsoft.com -BrkClientId c44b4083-3bb0-49c1-b47d-974e53cbdf3c -RedirectUri "brk-c44b4083-3bb0-49c1-b47d-974e53cbdf3c://entra.microsoft.com" -Origin "https://entra.microsoft.com"
+$refresh_token = "1.Aa4...." #Add refresh token from the Azure portal
+Invoke-Refresh -RefreshToken $refresh_token -clientid 74658136-14ec-4630-ad9b-26e160ff0fc6 -api graph.microsoft.com -BrkClientId c44b4083-3bb0-49c1-b47d-974e53cbdf3c -RedirectUri "brk-c44b4083-3bb0-49c1-b47d-974e53cbdf3c://entra.microsoft.com" -Origin "https://entra.microsoft.com"
 ```
-Note: this requires a valid refresh token from the Azure portal scoped to `https://management.core.windows.net//` (search in the DEV tools for this string).
+Note: this requires a valid refresh token from the Azure portal scoped to `https://management.core.windows.net//` (Auth on the Azure Portal and search in the DEV tools for this string).
+<details>
+<summary>Pre-consented permissions of ADIbizaUX on the MS Graph API</summary>
+
+- AccessReview.ReadWrite.All
+- Application.Read.All
+- AuditLog.Read.All
+- ChangeManagement.Read.All
+- ConsentRequest.Create
+- ConsentRequest.Read
+- ConsentRequest.ReadApprove.All
+- ConsentRequest.ReadWrite.All
+- CustomSecAttributeAssignment.Read.All
+- CustomSecAttributeAuditLogs.Read.All
+- Device-OrganizationalUnit.ReadWrite.All
+- Directory.AccessAsUser.All
+- Directory.Read.All
+- Directory.ReadWrite.All
+- Directory.Write.Restricted
+- DirectoryRecommendations.Read.All
+- DirectoryRecommendations.ReadWrite.All
+- Domain.ReadWrite.All
+- email
+- EntitlementManagement.Read.All
+- Group.ReadWrite.All
+- HealthMonitoringAlert.ReadWrite.All
+- HealthMonitoringAlertConfig.ReadWrite.All
+- IdentityProvider.ReadWrite.All
+- IdentityRiskEvent.ReadWrite.All
+- IdentityRiskyServicePrincipal.ReadWrite.All
+- IdentityRiskyUser.ReadWrite.All
+- IdentityUserFlow.Read.All
+- LifecycleWorkflows.ReadWrite.All
+- OnPremDirectorySynchronization.Read.All
+- openid
+- OrganizationalUnit.ReadWrite.All
+- Policy.Read.All
+- Policy.Read.IdentityProtection
+- Policy.ReadWrite.AuthenticationFlows
+- Policy.ReadWrite.AuthenticationMethod
+- Policy.ReadWrite.Authorization
+- Policy.ReadWrite.ConditionalAccess
+- Policy.ReadWrite.ExternalIdentities
+- Policy.ReadWrite.IdentityProtection
+- Policy.ReadWrite.MobilityManagement
+- profile
+- Reports.Read.All
+- RoleManagement.ReadWrite.Directory
+- SecurityEvents.ReadWrite.All
+- TrustFrameworkKeySet.Read.All
+- User.Export.All
+- User.ReadWrite.All
+- UserAuthenticationMethod.ReadWrite.All
+- User-OrganizationalUnit.ReadWrite.All
+</details>
 
 
 ---
