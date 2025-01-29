@@ -266,7 +266,7 @@ Refresh to a specific API (e.g., Azure Resource Manager):
 Invoke-Refresh -RefreshToken $Tokens.refresh_token -Api management.azure.com
 ```
 
-Refresh to ADIbizaUX client using the ```broker client id``` of the Azure portal (to use pre-consted permission)*:
+Refresh to ADIbizaUX client using the ```broker client id``` of the Azure portal (to use pre-consented permission)*:
 ```powershell
 $refresh_token = "1.Aa4...." #Add refresh token from the Azure portal
 Invoke-Refresh -RefreshToken $refresh_token -clientid 74658136-14ec-4630-ad9b-26e160ff0fc6 -api graph.microsoft.com -BrkClientId c44b4083-3bb0-49c1-b47d-974e53cbdf3c -RedirectUri "brk-c44b4083-3bb0-49c1-b47d-974e53cbdf3c://entra.microsoft.com" -Origin "https://entra.microsoft.com"
