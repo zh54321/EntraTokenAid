@@ -65,8 +65,8 @@ The module includes the following commands:
 
 ### `Invoke-Auth`
 
-Performs OAuth authentication using the Authorization code flow.
-By default it a Tokens from the MS Graph API using Azure CLI as client are requested.
+Performs OAuth authentication using the authorization code flow.
+By default, tokens from the MS Graph API are requested using Azure CLI as the client.
 
 #### Parameters
 All parameters are optional.
@@ -89,7 +89,7 @@ All parameters are optional.
 
 
 #### Examples
-Perform authentication and retrieve tokens with default options (MS Graph API / Azure CLI as client):
+Perform authentication and retrieve tokens with default options (MS Graph API / Azure CLI as the client):
 ```powershell
 $Tokens = Invoke-Auth
 ```
@@ -125,7 +125,7 @@ $tokens = invoke-auth -ClientID 1950a258-227b-4e31-a9cf-717495945fc2 -api manage
 $tokensOffice = invoke-refresh -RefreshToken $tokens.refresh_token -ClientID d3590ed6-52b3-4102-aeff-aad2292ab01c -api manage.office.com
 ```
 
-Perform automated testing by disabling user selection (already logged-in user in the browser will be used), activate reporting, set the HTTP timeout and loop through a list of client IDs:
+Perform automated testing by disabling user selection (the already logged-in user in the browser will be used), activating reporting, setting the HTTP timeout, and looping through a list of client IDs:
 ```powershell
 # Define the array of GUIDs
 $guids = @(
@@ -144,7 +144,7 @@ foreach ($guid in $guids) {
 
 ### `Invoke-DeviceCodeFlow`
 
-Authenticate using the device code flow. The browser is opened automatically, and the required code is copied to the clipboard.
+Authenticate using the device code flow. The browser opens automatically, and the required code is copied to the clipboard.
 
 #### Parameters
 All parameters are optional.
@@ -189,7 +189,7 @@ $Tokens = Invoke-DeviceCodeFlow
 
 ### `Invoke-ClientCredential`
 
-Authenticate using the client credential flow. Atm. only client secrets are support.
+Authenticate using the client credential flow. Currently, only client secrets are supported.
 
 #### Parameters
 All parameters are optional.
@@ -231,6 +231,9 @@ Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsP
 
 Uses a refresh token to obtain a new access token, optionally for the same or a different API or client (for FOCI tokens).
 Supports the ```brk_client_id```, ```redirect_uri``` and ```origin```. This allows in combination with a refresh token from the Azure Portal to get MS Graph Tokens with the client Microsoft_Azure_PIMCommon. With the token, it is possible to read the eligible assignment (pre-consented ```RoleEligibilitySchedule.ReadWrite.Directory```...).
+
+Uses a refresh token to obtain a new access token, optionally for the same or a different API or client (for FOCI tokens).
+Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a refresh token from the Azure Portal, this allows retrieving MS Graph tokens using `ADIbizaUX` or `Microsoft_Azure_PIMCommon` as client. With the token, it is possible to for example read eligible role assignments (pre-consented scopes on MS Graph).
 
 #### Parameters
 
@@ -333,7 +336,7 @@ Note: this requires a valid refresh token from the Azure portal scoped to `https
 ### `Invoke-ParseJwt`
 
 Decodes and analyzes a JWT, extracting and displaying its claims.
-The function use used automatically by other functions but can be used manually as well.
+The function is used automatically by other functions but can also be used manually.
 
 #### Parameters
 
@@ -363,7 +366,7 @@ It is **discouraged** to pass sensitive information, such as **Access Tokens** o
 
 
 Command-line arguments are stored by default in the PowerShell history file in your profile, events, or security monitoring tools.
-Attackers which gain access to those files may abuse credentials like long-lived refresh tokens.
+Attackers which gain access to those files may abuse credentials like long-lived refresh tokens
 
 ### Recommendations:
 - **Use variables** to store sensitive information in your script instead of passing it directly in the command line.
