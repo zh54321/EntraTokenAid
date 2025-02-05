@@ -230,9 +230,6 @@ Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsP
 ### `Invoke-Refresh`
 
 Uses a refresh token to obtain a new access token, optionally for the same or a different API or client (for FOCI tokens).
-Supports the ```brk_client_id```, ```redirect_uri``` and ```origin```. This allows in combination with a refresh token from the Azure Portal to get MS Graph Tokens with the client Microsoft_Azure_PIMCommon. With the token, it is possible to read the eligible assignment (pre-consented ```RoleEligibilitySchedule.ReadWrite.Directory```...).
-
-Uses a refresh token to obtain a new access token, optionally for the same or a different API or client (for FOCI tokens).
 Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a refresh token from the Azure Portal, this allows retrieving MS Graph tokens using `ADIbizaUX` or `Microsoft_Azure_PIMCommon` as client. With the token, it is possible to for example read eligible role assignments (pre-consented scopes on MS Graph).
 
 #### Parameters
