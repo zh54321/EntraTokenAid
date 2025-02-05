@@ -398,9 +398,8 @@ This module includes a JWT parsing method that was initially adapted from the fo
 
 #### Changed
 - Invoke Auth: Major overhault of the local HTTP Server:
-  - Can now stopped using Ctrl +C.
+  - Can now be stopped using Ctrl +C.
   - Better HTTP server error handling for improved stability
-  - Improved stability
 
 #### Fixed
 - Invoke Auth: CAE issue when using Firefox
