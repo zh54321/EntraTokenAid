@@ -9,12 +9,11 @@ With more customers starting to block the Device Code Flow, alternative authenti
 This tool should bridges this gap with a lightweight, standalone PowerShell solution that works even on the customers Windows systems.
 
 
-
 ---
 
 ## Features
 
-- **No dependencies**: A pure PowerShell single-file module that works on Windows systems (tested in PS 5&7) and on Linux.
+- **No dependencies**: A pure PowerShell single-file module that works on Windows systems (tested in PS 5&7) and partially on Linux.
 - **Interactive Authentication**: Supports both OAuth Auth Code Flow and Device Code Flow.
 - **Flexible Refresh**: Obtain access tokens for any API and client using refresh tokens.
 - **CAE Support**: By default, requests CAE (Continuous Access Evaluation) capable access tokens, valid for 24 hours.
@@ -22,6 +21,7 @@ This tool should bridges this gap with a lightweight, standalone PowerShell solu
 - **Avoiding Consent**: By default, the tool uses the Azure CLI client ID, enabling many MS Graph API actions without additional consent due to pre-consented permissions.
 - **Parameters**: A wide range of parameters allow you to customize the tool's behavior, such as enabling features like PKCE, CAE, and more, providing greater control during usage.
 - **Automation-Friendly**: Enables automated OAuth Auth Code Flow tests by disabling user selection, with the gathered tokens and claims exported to a CSV file.
+- **Experimental: Catching oAuth Codes on any URL**: Utilizes a legacy method to launch and control a browser, allowing automatic retrieval of the authorization code and seamless token exchange (Windows only). 
 ---
 
 ## Images
@@ -44,7 +44,6 @@ Using the obtained refresh token to get new tokens on another API and using anot
    ```powershell
    Import-Module ./EntraTokenAid/EntraTokenAid.psm1
    ```
-
 ---
 
 ## Getting Started
@@ -53,7 +52,7 @@ The module includes the following commands:
 
 | Command                   | Description                                                      |Default behavior|
 |---------------------------|------------------------------------------------------------------|----|
-| `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          |API: MS Graph / Client: Azure CLI / CAE: Yes|
+| `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          | API: MS Graph / Client: Azure CLI / CAE: Yes|
 | `Invoke-DeviceCodeFlow`   | Authenticate via the device code flow.|API: MS Graph / Client: Azure CLI|
 | `Invoke-ClientCredential` | Authenticate using the client credential flow.                      |API: MS Graph|
 | `Invoke-Refresh`          | Get a new access token using the refresh token. |API: MS Graph / Client: Azure CLI|
@@ -85,6 +84,7 @@ All parameters are optional.
 | **HttpTimeout**      | Time in seconds the HTTP Server waiting for OAuth callback.                 | `60`                                              |
 | **DisablePKCE**      | Disables the PKCE usage.                                                    | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
+| **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |  
 
 
@@ -93,15 +93,17 @@ Perform authentication and retrieve tokens with default options (MS Graph API / 
 ```powershell
 $Tokens = Invoke-Auth
 ```
-
 Authenticate on Azure ARM API:
 ```powershell
 $Tokens = Invoke-Auth -API "management.azure.com"
 ```
-
 Authenticate with a custom client ID and scope:
 ```powershell
 $Tokens = Invoke-Auth -ClientID "your-client-id" -Scope "offline_access Mail.Read"
+```
+Bypass the Conditional Access Policy which require a compliant device:
+```powershell
+$Tokens = Invoke-Auth -ClientID '9ba1a5c7-f17a-4de9-a1f1-6178c8d51223' -RedirectUrl 'urn:ietf:wg:oauth:2.0:oob'
 ```
 
 Connect to Microsoft Graph API:
@@ -356,6 +358,7 @@ The following functions are for internal use and are not exported by the module:
 
 - `Invoke-PrintTokenInfo` Formats and displays JWT information in console.
 - `Invoke-Reporting` Logs information to a CSV file for later analysis or comparison.
+- `Get-Token` Get the token from the token endpoint (OAuth code flow).
 
 ## Security Warning
 
@@ -383,6 +386,18 @@ Attackers which gain access to those files may abuse credentials like long-lived
   [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
   set-content -Path (Get-PSReadLineOption).HistorySavePath -value ' '
    ```
+## Usefule Side Project
+
+If you need to determine which first-party clients support specific authentication methods and have pre-consented scopes for the Microsoft Graph API, I’ve just launched a side project that provides a comprehensive list of usable Entra ID first-party clients with pre-consented Microsoft Graph scopes.
+
+This list is available in a simple YAML file, making it easy to explore via a lightweight HTML GUI. Additionally, it includes ready-to-use authentication commands for EntraTokenAid, tailored to each client based on the supported authentication methods.  
+Available on Github: [GraphPreConsentExplorer](https://github.com/zh54321/GraphPreConsentExplorer.git)
+
+![alt text](images/GraphPreConsentExplorer1.png "Title")
+
+![alt text](images/GraphPreConsentExplorer2.png "Title")
+
+
 
 ## Credits
 
@@ -391,6 +406,17 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+
+### 2025-02-09
+#### Added
+- Experimental: Now, the OAuth code can be captured and exchanged for a token on any redirect URL. This expands the range of usable client IDs. This approach relies on a legacy built-in Windows feature, though its availability may be limited in the future. I'm not sure how this functions when used in conjunction with company proxies 😅. However, it remains the only method I can think of that avoids external dependencies like Selenium. Note that it is only available on Windows (tested on 10 & 11). Example:  
+`$tokens = Invoke-Auth -ClientID 'c0d2a505-13b8-4ae0-aa9e-cddd5eab0b12' -RedirectUrl 'https://login.microsoftonline.com/common/oauth2/nativeclient'`
+- The Invoke-Auth flow now supports an *Origin* paramater which is required to authenticate with the client id of custom Single-Page-Application (SPA). Example:  
+`$tokens = Invoke-Auth -ClientID '6558279b-b386-4da0-9c6b-4af9ccf94e97' -RedirectUrl 'https://MyValidrederictURL.ch' -Origin 'https://DoesNotMatter.ch'`
+
+#### Changed
+- Exchanging the authorization code for a token is now managed by a dedicated internal function.
+- Improved error handling.
 
 ### 2025-01-13
 #### Added
