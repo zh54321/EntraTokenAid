@@ -139,7 +139,7 @@ function Invoke-Auth {
         write-host "[*] Local redirect URL used. Starting local HTTP Server.."
     } else {
         $AuthMode = "MiscUrl"
-        write-host "[*] External URL"
+        write-host "[*] External redirect URL used"
 
         if (-not ($env:OS -match "Windows")) {
             write-host "[!] Unfortunately, OAuth code with external URLs is only supported on Windows, as it relies on legacy Windows-only .NET components."
@@ -413,6 +413,7 @@ function Invoke-Auth {
 
     # Uf an non-local rederict URL is used:
     if ($AuthMode -eq "MiscUrl") {
+
         Add-Type -AssemblyName System.Web
         Add-Type -AssemblyName System.Windows.Forms
         #$Query = [System.Web.HttpUtility]::ParseQueryString([string]::Empty)
@@ -431,6 +432,7 @@ function Invoke-Auth {
             ScriptErrorsSuppressed  = $true
         }
 
+        write-host "[*] Spawning embeded Browser"
         $WebBrowser = New-Object -TypeName System.Windows.Forms.WebBrowser -Property $WebBrowserProperties
 
         $WebBrowser.Add_DocumentCompleted({
