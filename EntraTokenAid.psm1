@@ -432,33 +432,50 @@ function Invoke-Auth {
             ScriptErrorsSuppressed  = $true
         }
 
-        write-host "[*] Spawning embeded Browser"
+        write-host "[*] Spawning embedded Browser"
         $WebBrowser = New-Object -TypeName System.Windows.Forms.WebBrowser -Property $WebBrowserProperties
 
         $WebBrowser.Add_DocumentCompleted({
             $Form.Text = $WebBrowser.Document.Title
 
-            #Scanning URL for code or error parameters and the body for strings which appears on errors
-            if ($WebBrowser.Url.AbsoluteUri -match 'error=[^&]*|code=[^&]*') {
+            #write-host $WebBrowser.Url.AbsoluteUri
+            $Url = $WebBrowser.Url.AbsoluteUri
+
+            #Check every new URL for code or error parameters
+            if ($Url -match 'code=[^&]*') {
                 $Form.Close()
-            } elseif ($WebBrowser.Url.AbsoluteUri -match 'https://login.microsoftonline.com/') { #Section to capture the MS login errors
-                $Scripts = $WebBrowser.Document.GetElementsByTagName("script")
-                foreach ($Script in $Scripts) {
-                    $ScriptText = $Script.InnerText
-                    if ($ScriptText -match '"strServiceExceptionMessage":"(.*?)"') {
-                        $ErrorMessage = $matches[1] -replace '\\u0026#39;', "'"  # Replace encoded characters
-                        Write-Host "[!] Error Message: $ErrorMessage"
-                        $Form.Close()
-                        if ($Reporting) {
-                            #Create Error Object to use in reporting
-                            $ErrorDetails = [PSCustomObject]@{
-                                ClientID    = $ClientID
-                                ErrorLong   = $ErrorMessage 
+            } elseif ($Url -match 'https://login.microsoftonline.com/') { #Section to capture the MS login errors
+                
+                #Scanning URL for code or error parameters and the body for strings which appears on errors
+                if ($Url -match 'error=[^&]*') {
+
+                    # Extracting the 'error_description' parameter
+                    $UrlParams = $Url -split '\?' | Select-Object -Last 1
+                    $QueryParams = $UrlParams -split '&' | ForEach-Object {
+                        $Key, $Value = $_ -split '=', 2
+                        [PSCustomObject]@{ Key = $Key; Value = [System.Web.HttpUtility]::UrlDecode($Value) }
+                    }
+                    $ErrorMessage = ($QueryParams | Where-Object { $_.Key -eq "error_description" }).Value
+                } else {
+                    $Scripts = $WebBrowser.Document.GetElementsByTagName("script")
+                    foreach ($Script in $Scripts) {
+                        $ScriptText = $Script.InnerText
+                        if ($ScriptText -match '"strServiceExceptionMessage":"(.*?)"') {
+                            $ErrorMessage = $matches[1] -replace '\\u0026#39;', "'"  # Replace encoded characters
                             }
-                            Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"
                         }
                     }
-                }     
+                }
+                
+                Write-Host "[!] Error Message: $ErrorMessage"
+                $Form.Close()
+                if ($Reporting) {
+                    #Create Error Object to use in reporting
+                    $ErrorDetails = [PSCustomObject]@{
+                        ClientID    = $ClientID
+                        ErrorLong   = $ErrorMessage 
+                    }
+                    Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"   
             }
         })
 
