@@ -448,7 +448,7 @@ function Invoke-Auth {
                 
                 #Scanning URL for code or error parameters and the body for strings which appears on errors
                 if ($Url -match 'error=[^&]*') {
-
+                    write-host "[!] Error parameter in URL detected"
                     # Extracting the 'error_description' parameter
                     $UrlParams = $Url -split '\?' | Select-Object -Last 1
                     $QueryParams = $UrlParams -split '&' | ForEach-Object {
@@ -456,27 +456,39 @@ function Invoke-Auth {
                         [PSCustomObject]@{ Key = $Key; Value = [System.Web.HttpUtility]::UrlDecode($Value) }
                     }
                     $ErrorMessage = ($QueryParams | Where-Object { $_.Key -eq "error_description" }).Value
+                    $Form.Close()
+                    Write-Host "[!] Error Message: $ErrorMessage"
+                    if ($Reporting) {
+                        #Create Error Object to use in reporting
+                        $ErrorDetails = [PSCustomObject]@{
+                            ClientID    = $ClientID
+                            ErrorLong   = $ErrorMessage 
+                        }
+                        Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"   
+                    }
                 } else {
                     $Scripts = $WebBrowser.Document.GetElementsByTagName("script")
                     foreach ($Script in $Scripts) {
                         $ScriptText = $Script.InnerText
                         if ($ScriptText -match '"strServiceExceptionMessage":"(.*?)"') {
+                            write-host "[!] ServiceExceptionMessage in page body detected"
                             $ErrorMessage = $matches[1] -replace '\\u0026#39;', "'"  # Replace encoded characters
+                            $Form.Close()
+                            Write-Host "[!] Error Message: $ErrorMessage"
+                            if ($Reporting) {
+                                #Create Error Object to use in reporting
+                                $ErrorDetails = [PSCustomObject]@{
+                                    ClientID    = $ClientID
+                                    ErrorLong   = $ErrorMessage 
+                                }
+                                Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"   
                             }
                         }
                     }
                 }
-                
-                Write-Host "[!] Error Message: $ErrorMessage"
-                $Form.Close()
-                if ($Reporting) {
-                    #Create Error Object to use in reporting
-                    $ErrorDetails = [PSCustomObject]@{
-                        ClientID    = $ClientID
-                        ErrorLong   = $ErrorMessage 
-                    }
-                    Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"   
             }
+                
+
         })
 
         $Form.Controls.Add($WebBrowser)
