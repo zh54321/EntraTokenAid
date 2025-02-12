@@ -597,7 +597,11 @@ function Invoke-Refresh {
         "X-Client-Sku" = "MSAL.Python"
         "X-Client-Ver" = "1.31.0"
         "X-Client-Os" = "win32"
-        "Origin" = $Origin
+    }
+    
+    #Add Origin if defined
+    if ($Origin) {
+        $Headers.Add("Origin", $Origin)
     }
 
     #Construct Scope
