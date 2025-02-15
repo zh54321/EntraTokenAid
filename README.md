@@ -74,7 +74,7 @@ All parameters are optional.
 |----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
 | **Scope**            | Scopes (space sperated) to be requested.                                    | `default offline_access`                          |
-| **Api**              | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
+| **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
 | **Port**             | Local port to listen on for the OAuth callback.                             | `13824`                                           |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
@@ -105,9 +105,13 @@ Bypass the Conditional Access Policy which require a compliant device:
 ```powershell
 $Tokens = Invoke-Auth -ClientID '9ba1a5c7-f17a-4de9-a1f1-6178c8d51223' -RedirectUrl 'urn:ietf:wg:oauth:2.0:oob'
 ```
-
+Get tokens for main.iam.ad.ext.azure.com:
+```powershell
+$Tokens = Invoke-Auth -Api '74658136-14ec-4630-ad9b-26e160ff0fc6'
+```
 Connect to Microsoft Graph API:
 ```powershell
+$Tokens = Invoke-Auth
 Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
 ```
 
@@ -153,7 +157,7 @@ All parameters are optional.
 | Parameter              | Description                                                                 | Default Value                                     |
 |----------------------  |-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**           | Specifies the clientID for authentication.                                  | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
-| **Api**                | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
+| **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
 | **Tenant**             | Specific tenant id.                                                         | `organizations`                                   |
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
@@ -200,7 +204,7 @@ All parameters are optional.
 | **ClientID**           | Specifies the clientID for authentication.                                  | -|
 | **ClientSecret**       | Client secret of the application (secure prompt if empty).                         | -|
 | **Tenant**             | Specific tenant id.                                                         | `-`                                   |
-| **Api**                | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
+| **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **Scope**              | Scopes (space sperated) to be requested.                                    | `default`                          |
 | **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
@@ -241,7 +245,7 @@ Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a re
 | **RefreshToken**     | Refresh token to used (MANDETORY).                                          | -                                                 |
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
 | **Scope**            | Scopes (space sperated) to be requested.                                    | `default offline_access`                          |
-| **Api**              | API for which the access token is needed.                                   | `graph.microsoft.com`                             |
+| **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **UserAgent**        | User agent used.                                                            | `python-requests/2.32.3`                          |  
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
@@ -406,6 +410,11 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+
+### 2025-02-15
+#### Added
+- It is now possible to specify resource GUIDs in the API parameter. For example, to get a token for main.iam.ad.ext.azure.com:  
+`$tokens = Invoke-Auth -api 74658136-14ec-4630-ad9b-26e160ff0fc6`
 
 ### 2025-02-09
 #### Added

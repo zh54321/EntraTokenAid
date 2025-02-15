@@ -147,8 +147,15 @@ function Invoke-Auth {
         }
     }
 
+    # Regular Expression for a GUID
+    $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
     #Construct Scope
-    $ApiScopeUrl = "https://$Api/.$Scope"
+    if ($Api -match $guidPattern) {
+        $ApiScopeUrl = "$Api/.$Scope"
+    } else {
+        $ApiScopeUrl = "https://$Api/.$Scope"
+    }
 
     #Generate State
     $State = [Convert]::ToBase64String((1..12 | ForEach-Object { [byte](Get-Random -Minimum 0 -Maximum 256) })).Replace('+', '-').Replace('/', '_').Replace('=', '')
@@ -604,8 +611,15 @@ function Invoke-Refresh {
         $Headers.Add("Origin", $Origin)
     }
 
+    # Regular Expression for a GUID
+    $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
     #Construct Scope
-    $ApiScopeUrl = "https://$Api/.$Scope"
+    if ($Api -match $guidPattern) {
+        $ApiScopeUrl = "$Api/.$Scope"
+    } else {
+        $ApiScopeUrl = "https://$Api/.$Scope"
+    }
 
     #Define Body (Emulat Azure CLI)
     $Body = @{
@@ -789,7 +803,18 @@ function Invoke-DeviceCodeFlow {
     )
 
     $Proceed = $true
-    $Resource = "https://$API"
+    
+    # Regular Expression for a GUID
+    $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
+    #Construct Scope
+    if ($Api -match $guidPattern) {
+        $Resource = "$Api"
+    } else {
+        $Resource = "https://$API"
+    }
+    
+
     $Headers=@{}
     $Headers["User-Agent"] = $UserAgent
     $Body = @{
@@ -1005,8 +1030,15 @@ function Invoke-ClientCredential {
         )
     }
 
+    # Regular Expression for a GUID
+    $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
     #Construct Scope
-    $ApiScopeUrl = "https://$Api/.$Scope"
+    if ($Api -match $guidPattern) {
+        $ApiScopeUrl = "$Api/.$Scope"
+    } else {
+        $ApiScopeUrl = "https://$Api/.$Scope"
+    }
         
      # Get Access Token 
     $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" 
