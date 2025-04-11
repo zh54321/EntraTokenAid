@@ -237,7 +237,7 @@ function Invoke-Auth {
                             $Request = $Context.Request
                             $RequestQueue.Enqueue($Request)
 
-                            # Response handeling in case there is a code parameter
+                            # Response handling in case there is a code parameter
                             if ($Request.HttpMethod -eq 'GET' -and $Request.QueryString -match "\bcode\b") {
                                 [string]$HtmlContent = "
                                 <!DOCTYPE html>
@@ -336,13 +336,13 @@ function Invoke-Auth {
                                 $StateResponse = $QueryParams["state"]
                                 
                                 if ($StateResponse -ne $State) {
-                                    write-host "[!] Error: Wrong state reveived from IDP. Aborting..."
-                                    write-host "[!] Error: Received $StateResponse but exepected $State"
+                                    write-host "[!] Error: Wrong state received from IDP. Aborting..."
+                                    write-host "[!] Error: Received $StateResponse but expected $State"
                                     $AuthError = $true
                                     $Proceed = $false
                                     $ErrorDetails = [PSCustomObject]@{
                                         ClientID    = $ClientID
-                                        ErrorLong   = "Wrong state reveived from IDP"
+                                        ErrorLong   = "Wrong state received from IDP"
                                     }
                                     break
                                 }
@@ -418,7 +418,7 @@ function Invoke-Auth {
         }
     }
 
-    # Uf an non-local rederict URL is used:
+    # If an non-local redirect URL is used:
     if ($AuthMode -eq "MiscUrl") {
 
         Add-Type -AssemblyName System.Web
@@ -501,7 +501,7 @@ function Invoke-Auth {
         $Form.Controls.Add($WebBrowser)
         $Form.Add_Shown({$Form.Activate()})
         
-        $Form.ShowDialog() | Out-Null     #Script waits here 
+        $Form.ShowDialog() | Out-Null     #Blocks until auth is complete
 
         $AuthorizationCode = [System.Web.HttpUtility]::ParseQueryString($WebBrowser.Url.Query)['code']
         $WebBrowser.Dispose()
@@ -598,7 +598,7 @@ function Invoke-Refresh {
         [Parameter(Mandatory=$false)][string]$RedirectUri
     )
 
-    #Define headers (Emulat Azure CLI)
+    #Define headers (Emulates Azure CLI)
     $Headers = @{
         "User-Agent" = $UserAgent
         "X-Client-Sku" = "MSAL.Python"
@@ -621,7 +621,7 @@ function Invoke-Refresh {
         $ApiScopeUrl = "https://$Api/.$Scope"
     }
 
-    #Define Body (Emulat Azure CLI)
+    #Define Body (Emulates Azure CLI)
     $Body = @{
         grant_type    = "refresh_token"
         client_id     = $ClientID
