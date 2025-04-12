@@ -85,6 +85,12 @@ function Invoke-Auth {
     .PARAMETER Origin
     Define Origin Header to be used in the HTTP request to the token endpoint (required for SPA) (Optional).
 
+    .PARAMETER ManualCode
+    Generates the authentication URL for use on another system. After authenticating, manually use the authorization code to obtain the token.
+
+    .PARAMETER SkipGen
+    Use in combination with -ManualCode to skip generating the authentication URL. This also disables state validation. Typically used with -DisablePKCE.
+
     .PARAMETER Reporting
     Enables additional logging to a CSV.
 
@@ -122,6 +128,8 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
         [Parameter(Mandatory=$false)][string]$RedirectURL = "http://localhost:$($Port)",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$ManualCode,
+        [Parameter(Mandatory=$false)][switch]$SkipGen,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$DisablePrompt = $false,
         [Parameter(Mandatory=$false)][switch]$DisablePKCE = $false,
@@ -133,17 +141,22 @@ function Invoke-Auth {
 
     $AuthError = $false
 
-    #Check whether the local HTTP server needs to be started.
-    if ($RedirectURL -like "*localhost*" -or $RedirectURL -like "*::1*" -or $RedirectURL -like "*127.0.0.1*" -or $RedirectURL -like "*0.0.0.0*") {
-        $AuthMode = "LocalHTTP"
-        write-host "[*] Local redirect URL used. Starting local HTTP Server.."
+    #Check whether the manual code flow, local HTTP server or embeded browser needs to be started.
+    if ($ManualCode) {
+        $AuthMode = "ManualCode"
     } else {
-        $AuthMode = "MiscUrl"
-        write-host "[*] External redirect URL used"
+        if ($RedirectURL -like "*localhost*" -or $RedirectURL -like "*::1*" -or $RedirectURL -like "*127.0.0.1*" -or $RedirectURL -like "*0.0.0.0*") {
+            $AuthMode = "LocalHTTP"
+            write-host "[*] Local redirect URL used. Starting local HTTP Server.."
+        } else {
+            $AuthMode = "MiscUrl"
+            write-host "[*] External redirect URL used"
 
-        if (-not ($env:OS -match "Windows")) {
-            write-host "[!] Unfortunately, OAuth code with external URLs is only supported on Windows, as it relies on legacy Windows-only .NET components."
-            break
+            if (-not ($env:OS -match "Windows")) {
+                write-host "[!] Unfortunately, OAuth code with external URLs is only supported on Windows, as it relies on legacy Windows-only .NET components."
+                write-host "[!] Use a local redirect URI (e.g http://localhost:$($Port)), manual code flow (-ManualCode) or the devicecode flow."
+                break
+            }
         }
     }
 
@@ -513,6 +526,64 @@ function Invoke-Auth {
             $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin
             return $tokens 
         }
+    }
+
+    # If manual code flow is used
+    if ($AuthMode -eq "ManualCode") {
+        if (-not $SkipGen) {
+            write-host "[i] The authentication URL has been copied to your clipboard:"
+            write-host $Url
+            set-clipboard $Url
+            write-host "[i] Open the URL in your browser, authenticate, and copy the full redirected URL (it contains the authorization code) to your clipboard."
+        } else {
+            write-host "[i] Copy the full redirected URL (it contains the authorization code) to your clipboard."
+        }
+        
+        Write-Host "[i] Press Enter when done, or press CTRL + C to abort."
+        $WaitForCode = $true
+        while ($WaitForCode) {
+
+            #Wait for Enter key
+            Read-Host
+            $RawUrl = Get-Clipboard
+
+            #Get content of the GET parameters
+            $QueryString = $RawUrl  -replace '^.*\?', ''
+            $Params = $QueryString -split '&'
+            $QueryParams = @{}
+        
+            # Iterate over each parameter and split into key-value pairs
+            foreach ($Param in $Params) {
+                $Key, $Value = $Param -split '=', 2
+                $QueryParams[$Key] = $Value
+            }
+
+            If ($null -eq $QueryParams["code"]) {
+                write-host "[!] The clipboard does not contain a URL with a 'code' parameter (code=...)"
+                Write-Host "[i] After authenticating, copy the full redirected URL and press Enter when ready (or press CTRL + C to abort)."
+            } else {
+                $WaitForCode = $false
+            }
+        }
+
+        $AuthorizationCode = $QueryParams["code"]
+        $StateResponse = $QueryParams["state"]
+
+        if (-not $SkipGen -and $StateResponse -ne $State) {
+            write-host "[!] Error: Wrong state received from IDP. Aborting..."
+            write-host "[!] Error: Received $StateResponse but expected $State"
+            $AuthError = $true
+            $Proceed = $false
+            $ErrorDetails = [PSCustomObject]@{
+                ClientID    = $ClientID
+                ErrorLong   = "Wrong state received from IDP"
+            }
+            break
+        }
+    
+        #Call the token endpoint
+        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting
+        return $tokens
     }
 }
 

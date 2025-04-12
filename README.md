@@ -85,10 +85,12 @@ All parameters are optional.
 | **DisablePKCE**      | Disables the PKCE usage.                                                    | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
 | **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
-| **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |  
+| **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
+| **ManualCode**       | Get auth URL for external login; use final URL with the code to auth        | `false`                                           |
+| **SkipGen**          | Skip auth URL generation (use with `-ManualCode`)                           | `false`                                           | 
 
 
-#### Examples
+#### Examples Authentication
 Perform authentication and retrieve tokens with default options (MS Graph API / Azure CLI as the client):
 ```powershell
 $Tokens = Invoke-Auth
@@ -109,28 +111,6 @@ Get tokens for main.iam.ad.ext.azure.com:
 ```powershell
 $Tokens = Invoke-Auth -Api '74658136-14ec-4630-ad9b-26e160ff0fc6'
 ```
-Connect to Microsoft Graph API:
-```powershell
-$Tokens = Invoke-Auth
-Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
-```
-
-Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
-```powershell
-$Tokens = Invoke-Auth
-.\azurehound.exe --refresh-token $Tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
-```
-Authenticate and use with [GraphRunner](https://github.com/dafthack/GraphRunner):
-```powershell
-$tokens = Invoke-Auth
-Invoke-GraphRecon -Tokens $tokens -PermissionEnum
-```
-Authenticate on Azure Resource Manager as Azure Powershell, refresh to Office API as Microsoft Office:
-```powershell
-$tokens = invoke-auth -ClientID 1950a258-227b-4e31-a9cf-717495945fc2 -api management.azure.com
-$tokensOffice = invoke-refresh -RefreshToken $tokens.refresh_token -ClientID d3590ed6-52b3-4102-aeff-aad2292ab01c -api manage.office.com
-```
-
 Perform automated testing by disabling user selection (the already logged-in user in the browser will be used), activating reporting, setting the HTTP timeout, and looping through a list of client IDs:
 ```powershell
 # Define the array of GUIDs
@@ -144,6 +124,25 @@ $guids = @(
 foreach ($guid in $guids) {
     Invoke-Auth -ClientID $guid -DisablePrompt -Reporting -HttpTimeout 5
 }
+```
+
+#### Usage with 3rd-Party Tooling
+Connect to Microsoft Graph API using the official PowerShell modules:
+```powershell
+$Tokens = Invoke-Auth
+Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
+```
+
+Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
+```powershell
+$Tokens = Invoke-Auth
+.\azurehound.exe --refresh-token $Tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
+```
+
+Authenticate and use with [GraphRunner](https://github.com/dafthack/GraphRunner):
+```powershell
+$tokens = Invoke-Auth
+Invoke-GraphRecon -Tokens $tokens -PermissionEnum
 ```
 
 ---
@@ -271,6 +270,13 @@ Refresh to a specific API (e.g., Azure Resource Manager):
 ```powershell
 Invoke-Refresh -RefreshToken $Tokens.refresh_token -Api management.azure.com
 ```
+
+Authenticate on Azure Resource Manager as Azure Powershell, refresh to Office API as Microsoft Office:
+```powershell
+$tokens = invoke-auth -ClientID 1950a258-227b-4e31-a9cf-717495945fc2 -api management.azure.com
+$tokensOffice = invoke-refresh -RefreshToken $tokens.refresh_token -ClientID d3590ed6-52b3-4102-aeff-aad2292ab01c -api manage.office.com
+```
+
 
 Refresh to ADIbizaUX client using the ```broker client id``` of the Azure portal (to use pre-consented permission)*:
 ```powershell
@@ -410,6 +416,14 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+### 2025-04-11
+#### Added
+- It is now possible now generate the authentication URL for use on another system. After successful authentication, copy the URL containing the AuthCode, and use EntraToken aid to extract the code and obtain the token.
+`$tokens = Invoke-Auth -ManualCode`
+
+Note: Inspired by: 
+- [TokenTacticsV2](https://github.com/f-bader/TokenTacticsV2)
+- [TokenSmith](https://github.com/JumpsecLabs/TokenSmith)
 
 ### 2025-02-15
 #### Added
