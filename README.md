@@ -87,7 +87,8 @@ All parameters are optional.
 | **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
 | **ManualCode**       | Get auth URL for external login; use final URL with the code to auth        | `false`                                           |
-| **SkipGen**          | Skip auth URL generation (use with `-ManualCode`)                           | `false`                                           | 
+| **SkipGen**          | Skip auth URL generation (use with `-ManualCode`)                           | `false`                                           |
+| **UserAgent**        | User agent used (token endpoint) (impacts only non-interactive sign-ins)    | `python-requests/2.32.3`                          |  
 
 
 #### Examples Authentication
@@ -416,6 +417,11 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+### 2025-04-15
+#### Added
+- Invoke-Auth now accept an UserAgent parameter. This user agent is used for requests to the token endpoint. Therefore, it will only affect non-interactive sign-in logs.  
+`$tokens = Invoke-Auth -UserAgent MyCoolUserAgent`
+
 ### 2025-04-11
 #### Added
 - It is now possible now generate the authentication URL for use on another system. After successful authentication, copy the URL containing the AuthCode, and use EntraToken aid to extract the code and obtain the token.

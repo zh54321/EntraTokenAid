@@ -69,6 +69,10 @@ function Invoke-Auth {
 
     .PARAMETER DisablePrompt
     Prevents user selection in the browser during authentication (silent authentication).
+    
+    .PARAMETER UserAgent
+    Specifies the user agent string to be used in the HTTP requests (not will only impact non-interactive sign-ins).
+    Default: `python-requests/2.32.3`
 
     .PARAMETER DisablePKCE
     Disables the use of Proof Key for Code Exchange (PKCE) during authentication.
@@ -110,8 +114,8 @@ function Invoke-Auth {
     Performs authentication for Azure ARM
 
     .EXAMPLE
-    Invoke-Auth -Tenant 9f412d6a-ae60-43fb-9765-32e31a6XXXXX"
-
+    Invoke-Auth -Tenant 9f412d6a-ae60-43fb-9765-32e31a6XXXXX
+    Invoke-Auth -Tenant mydomain.ch
     Performs authentication on a specific tenant
 
     .EXAMPLE
@@ -127,6 +131,7 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
         [Parameter(Mandatory=$false)][string]$RedirectURL = "http://localhost:$($Port)",
+        [Parameter(Mandatory=$false)][string]$UserAgent = "python-requests/2.32.3",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$ManualCode,
         [Parameter(Mandatory=$false)][switch]$SkipGen,
@@ -361,7 +366,7 @@ function Invoke-Auth {
                                 }
 
                                 #Call the token endpoint
-                                $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting
+                                $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -UserAgent $UserAgent
                                 $Proceed = $false
 
                             } elseif ($Request.HttpMethod -eq 'GET' -and $($Request.QueryString) -match "\berror\b") {
@@ -523,7 +528,7 @@ function Invoke-Auth {
         if ($AuthorizationCode) {
             write-host "[+] Got an AuthCode"
             #Use function to call the Token endpoint
-            $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin
+            $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent
             return $tokens 
         }
     }
@@ -582,7 +587,7 @@ function Invoke-Auth {
         }
     
         #Call the token endpoint
-        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting
+        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -UserAgent $UserAgent
         return $tokens
     }
 }
@@ -1408,6 +1413,10 @@ function Get-Token {
     .PARAMETER TokenOut
     Prints token details if set to $true (Optional).
 
+    .PARAMETER UserAgent
+    Specifies the user agent string to be used in the HTTP requests (not will only impact non-interactive sign-ins).
+    Default: `python-requests/2.32.3`
+
     .PARAMETER Origin
     Define Origin Header to be used in the HTTP request to the token endpoint (required for SPA) (Optional).
 
@@ -1436,6 +1445,7 @@ function Get-Token {
         [Parameter(Mandatory=$false)][bool]$Reporting,
         [Parameter(Mandatory=$false)][bool]$TokenOut,
         [Parameter(Mandatory=$false)][bool]$DisableJwtParsing,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "python-requests/2.32.3",
         [Parameter(Mandatory=$false)][string]$ReportName,
         [Parameter(Mandatory=$false)][string]$Origin
     )
@@ -1445,7 +1455,7 @@ function Get-Token {
         
     #Define headers (emulate Azure CLI)
     $Headers = @{
-        "User-Agent" = "python-requests/2.32.3"
+        "User-Agent" = $UserAgent
         "X-Client-Sku" = "MSAL.Python"
         "X-Client-Ver" = "1.31.0"
         "X-Client-Os" = "win32"
