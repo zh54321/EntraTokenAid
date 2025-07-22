@@ -419,7 +419,7 @@ This module includes a JWT parsing method that was initially adapted from the fo
 ## Changelog
 ### 2025-07-22
 #### Fixed
-- `Invoke-Auth` with `-ManualCode` now also supports the `-Origin` parameter to authenticate at SPAs.
+- `Invoke-Auth` with `-ManualCode` or local HTTP redirect now also supports the `-Origin` parameter to authenticate at SPAs.
 
 ### 2025-04-15
 #### Added
