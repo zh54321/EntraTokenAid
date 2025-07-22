@@ -417,6 +417,10 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+### 2025-07-22
+#### Fixed
+- `Invoke-Auth` with `-ManualCode` now also supports the `-Origin` parameter to authenticate at SPAs.
+
 ### 2025-04-15
 #### Added
 - Invoke-Auth now accept an UserAgent parameter. This user agent is used for requests to the token endpoint. Therefore, it will only affect non-interactive sign-in logs.  
