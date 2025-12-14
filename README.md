@@ -50,13 +50,14 @@ Using the obtained refresh token to get new tokens on another API and using anot
 
 The module includes the following commands:
 
-| Command                   | Description                                                      |Default behavior|
-|---------------------------|------------------------------------------------------------------|----|
-| `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          | API: MS Graph / Client: Azure CLI / CAE: Yes|
-| `Invoke-DeviceCodeFlow`   | Authenticate via the device code flow.|API: MS Graph / Client: Azure CLI|
-| `Invoke-ClientCredential` | Authenticate using the client credential flow.                      |API: MS Graph|
-| `Invoke-Refresh`          | Get a new access token using the refresh token. |API: MS Graph / Client: Azure CLI|
-| `Invoke-ParseJwt`         | Decode a JWT and display its body properties.                      |-|
+| Command                   | Description                                                           |Default behavior|
+|---------------------------|-----------------------------------------------------------------------|----|
+| `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          |API: MS Graph / Client: Azure CLI / CAE: Yes|
+| `Invoke-DeviceCodeFlow`   | Authenticate via the device code flow.                                |API: MS Graph / Client: Azure CLI|
+| `Invoke-ClientCredential` | Authenticate using the client credential flow.                        |API: MS Graph|
+| `Invoke-Refresh`          | Get a new access token using the refresh token.                       |API: MS Graph / Client: Azure CLI|
+| `Invoke-ParseJwt`         | Decode a JWT and display its body properties.                         |-|
+| `Show-EntraTokenAidHelp`  | Show Help.                                                            |-|
 
 ---
 

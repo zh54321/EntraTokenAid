@@ -1619,40 +1619,70 @@ function Get-Token {
 
 }
 
-Export-ModuleMember -Function Invoke-Auth,Invoke-Refresh,Invoke-DeviceCodeFlow,Invoke-ParseJwt,Show-ModuleHelp,Invoke-ClientCredential
+function Show-EntraTokenAidHelp {
+    [CmdletBinding()]
+    param()
 
-
-function Show-ModuleBanner {
     $banner = @'
     ______      __            ______      __              ___    _     __
    / ____/___  / /__________ /_  __/___  / /_____  ____  /   |  (_)___/ /
   / __/ / __ \/ __/ ___/ __ `// / / __ \/ //_/ _ \/ __ \/ /| | / / __  / 
  / /___/ / / / /_/ /  / /_/ // / / /_/ / ,< /  __/ / / / ___ |/ / /_/ /  
 /_____/_/ /_/\__/_/   \__,_//_/  \____/_/|_|\___/_/ /_/_/  |_/_/\__,_/                                                                
-
 '@
-    # Show Banner with color
+
+    # Header
     Write-Host $banner -ForegroundColor Cyan
-    Write-Host ''
-    # Now showing Available Commands with different colors for emphasis
-    Write-Host 'Available Commands:' -ForegroundColor Green
-    Write-Host ''
-    Write-Host '$tokens = Invoke-Auth                                         ' -ForegroundColor Yellow
-    Write-Host 'Interactive OAuth Code Flow / Defaults to MS Graph API & Azure CLI as client' -ForegroundColor White
-    Write-Host ''
-    Write-Host '$tokens = Invoke-DeviceCodeFlow                               ' -ForegroundColor Yellow
-    Write-Host 'DeviceCode Flow / Defaults to MS Graph API & Azure CLI as client' -ForegroundColor White
-    Write-Host ''
-    Write-Host '$tokens = Invoke-Refresh -RefreshToken $tokens.refresh_token   ' -ForegroundColor Yellow
-    Write-Host 'Get a new Access Token / Defaults to MS Graph API & Azure CLI as client' -ForegroundColor White
-    Write-Host ''
-    Write-Host '$tokens = Invoke-ClientCredential -ClientId $YourClientId -TenantId $YourTenantId -ClientSecret $YourCLientSecret  ' -ForegroundColor Yellow
-    Write-Host 'Authenticate as service principal / Defaults to MS Graph API' -ForegroundColor White
-    Write-Host ''
-    Write-Host 'Invoke-ParseJwt -JWT $tokens.access_token            ' -ForegroundColor Yellow
-    Write-Host 'Parses the JWT' -ForegroundColor White
-    Write-Host ''
+    Write-Host "v20251214" -ForegroundColor Green
+    Write-Host "Project Source: https://github.com/zh54321/EntraTokenAid" -ForegroundColor DarkCyan
+    Write-Host ""
+
+    Write-Host "Commands" -ForegroundColor Green
+    Write-Host "--------"
+    Write-Host "  Invoke-Auth" -ForegroundColor Yellow
+    Write-Host "      Interactive OAuth Authorization Code Flow" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-DeviceCodeFlow" -ForegroundColor Yellow
+    Write-Host "      OAuth Device Code Flow (browser assisted / headless)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-Refresh" -ForegroundColor Yellow
+    Write-Host "      Exchange a refresh token for new access/refresh tokens" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-ClientCredential" -ForegroundColor Yellow
+    Write-Host "      Client Credential Flow (service principal authentication)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-ParseJwt" -ForegroundColor Yellow
+    Write-Host "      Decode and inspect JWT token claims" -ForegroundColor Gray
+    Write-Host ""
+
+    Write-Host "Common Examples" -ForegroundColor Green
+    Write-Host "----------------"
+    Write-Host "  # Get a token (defaults to the MS Graph API and Azure CLI as client)" -ForegroundColor Gray
+    Write-Host '  $tokens = Invoke-Auth' -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  # Get a token for Azure Resource Manager (defaults Azure CLI as client)" -ForegroundColor Gray
+    Write-Host '  $tokens = Invoke-DeviceCodeFlow -api management.azure.com' -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  # Refresh a token (defaults to MS Graph API & Azure CLI as client)" -ForegroundColor Gray
+    Write-Host '  $tokens = Invoke-Refresh -RefreshToken $tokens.refresh_token' -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  # Authenticate as a service principal (defaults Azure CLI as client)" -ForegroundColor Gray
+    Write-Host '  $tokens = Invoke-ClientCredential -ClientId <ClientId> -ClientSecret <Secret> -TenantId <TenantId>' -ForegroundColor Yellow
+    Write-Host ""
+
+    Write-Host "Detailed Help" -ForegroundColor Green
+    Write-Host "-------------"
+    Write-Host "  Get-Help Invoke-Auth -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-Refresh -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-DeviceCodeFlow -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-ClientCredential -Detailed" -ForegroundColor Yellow
+    Write-Host ""
 }
 
-# Show Banner
-Show-ModuleBanner
+
+
+
+Export-ModuleMember -Function Invoke-Auth,Invoke-Refresh,Invoke-DeviceCodeFlow,Invoke-ParseJwt,Show-EntraTokenAidHelp,Invoke-ClientCredential
+
+
+
