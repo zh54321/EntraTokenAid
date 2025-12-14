@@ -168,12 +168,14 @@ function Invoke-Auth {
     # Regular Expression for a GUID
     $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-    #Construct Scope
-    if ($Api -match $guidPattern) {
+    # Construct Scope
+    if ($Api -match $guidPattern -or $Api.StartsWith("urn:", 'InvariantCultureIgnoreCase')) {
         $ApiScopeUrl = "$Api/.$Scope"
-    } else {
+    }
+    else {
         $ApiScopeUrl = "https://$Api/.$Scope"
     }
+
 
     #Generate State
     $State = [Convert]::ToBase64String((1..12 | ForEach-Object { [byte](Get-Random -Minimum 0 -Maximum 256) })).Replace('+', '-').Replace('/', '_').Replace('=', '')
@@ -690,12 +692,14 @@ function Invoke-Refresh {
     # Regular Expression for a GUID
     $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-    #Construct Scope
-    if ($Api -match $guidPattern) {
+    # Construct Scope
+    if ($Api -match $guidPattern -or $Api.StartsWith("urn:", 'InvariantCultureIgnoreCase')) {
         $ApiScopeUrl = "$Api/.$Scope"
-    } else {
+    }
+    else {
         $ApiScopeUrl = "https://$Api/.$Scope"
     }
+
 
     #Define Body (Emulates Azure CLI)
     $Body = @{
@@ -883,11 +887,12 @@ function Invoke-DeviceCodeFlow {
     # Regular Expression for a GUID
     $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-    #Construct Scope
-    if ($Api -match $guidPattern) {
-        $Resource = "$Api"
-    } else {
-        $Resource = "https://$API"
+    # Construct Scope
+    if ($Api -match $guidPattern -or $Api.StartsWith("urn:", 'InvariantCultureIgnoreCase')) {
+        $ApiScopeUrl = "$Api/.$Scope"
+    }
+    else {
+        $ApiScopeUrl = "https://$Api/.$Scope"
     }
     
 
@@ -1109,10 +1114,11 @@ function Invoke-ClientCredential {
     # Regular Expression for a GUID
     $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-    #Construct Scope
-    if ($Api -match $guidPattern) {
+    # Construct Scope
+    if ($Api -match $guidPattern -or $Api.StartsWith("urn:", 'InvariantCultureIgnoreCase')) {
         $ApiScopeUrl = "$Api/.$Scope"
-    } else {
+    }
+    else {
         $ApiScopeUrl = "https://$Api/.$Scope"
     }
         
@@ -1160,7 +1166,7 @@ function Invoke-ClientCredential {
                     break
                 }
 
-                #Add additonal infos to token object
+                # Add additonal infos to token object
                 $TokensClientCredential | Add-Member -NotePropertyName client_app_id -NotePropertyValue $JWT.appid
                 if ($JWT.app_displayname) {$TokensClientCredential | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname}
                 $TokensClientCredential | Add-Member -NotePropertyName sp_object_id -NotePropertyValue $JWT.oid
