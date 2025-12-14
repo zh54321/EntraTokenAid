@@ -858,7 +858,7 @@ function Invoke-DeviceCodeFlow {
         Default: `organizations`
 
         .PARAMETER Reporting
-        Enables logging (CSV) the details of the refresh operation for later analysis. 
+        Enables logging (CSV) the details of the authentication operation for later analysis. 
 
         .EXAMPLE
         Invoke-DeviceCodeFlow
@@ -877,7 +877,7 @@ function Invoke-DeviceCodeFlow {
     #>
     param (
         [Parameter(Mandatory=$false)][string]$ClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
-        [Parameter(Mandatory=$false)][string]$APi = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$DisableBrowserStart = $false,
@@ -1065,7 +1065,7 @@ function Invoke-ClientCredential {
         Specifies the tenant ID for authentication. This parameter is mandatory.
 
         .PARAMETER Reporting
-        Enables logging (CSV) the details of the refresh operation for later analysis. 
+        Enables logging (CSV) the details of the authentication operation for later analysis. 
 
         .EXAMPLE
         Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id"
