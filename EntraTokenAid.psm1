@@ -98,6 +98,9 @@ function Invoke-Auth {
     .PARAMETER Reporting
     Enables additional logging to a CSV.
 
+    .PARAMETER LoginHint
+    Pre-fill the username on the login page
+
     .EXAMPLE
     Invoke-Auth
 
@@ -141,7 +144,8 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][switch]$DisableCAE = $false,
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
         [Parameter(Mandatory=$false)][string]$Origin,
-        [Parameter(Mandatory=$false)][string]$ReportName = "Code"
+        [Parameter(Mandatory=$false)][string]$ReportName = "Code",
+        [Parameter(Mandatory=$false)][string]$LoginHint
     )
 
     $AuthError = $false
@@ -194,7 +198,7 @@ function Invoke-Auth {
         $Url += "&code_challenge=$PKCE&code_challenge_method=plain"
     }
 
-    #Check if PKCE should not be used
+    #Check if LoginHint should not be used
     if ($LoginHint) {
         $Url += "&login_hint=$LoginHint"
     }

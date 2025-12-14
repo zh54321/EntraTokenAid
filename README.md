@@ -88,6 +88,7 @@ All parameters are optional.
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
 | **ManualCode**       | Get auth URL for external login; use final URL with the code to auth        | `false`                                           |
 | **SkipGen**          | Skip auth URL generation (use with `-ManualCode`)                           | `false`                                           |
+| **LoginHint**        | Pre-fill the username on the login page.                                    | `-`                                               |
 | **UserAgent**        | User agent used (token endpoint) (impacts only non-interactive sign-ins)    | `python-requests/2.32.3`                          |  
 
 
