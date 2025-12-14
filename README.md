@@ -1,13 +1,12 @@
 # EntraTokenAid
 
-EntraTokenAid is a PowerShell module to simplify OAuth workflows with Microsoft Entra ID, to get the access and refresh token for different APIs using different clients.
+EntraTokenAid is a PowerShell module to simplify OAuth workflows with Microsoft Entra ID, to get the access and refresh tokens for different APIs using different clients.
 
 Accessing cleartext access and refresh tokens for various MS APIs (e.g., MS Graph) is often a requirement during engagements and research, especially using pre-consented clients (e.g., AzureCLI) to avoid additional consent prompts. Tokens are needed not only for manual enumeration via APIs but also for tools like AzureHound or GraphRunner, which require a valid refresh token. 
 
 With more customers starting to block the Device Code Flow, alternative authentication methods for obtaining cleartext refresh tokens are becoming increasingly important. While using AzureCLI modules is a common solution, its installation may not always be feasible—especially on customer systems. Other alternatives like roadtx require Python, which might not be ideal in customer environments.
 
-This tool should bridges this gap with a lightweight, standalone PowerShell solution that works even on the customers Windows systems.
-
+This tool bridges this gap with a lightweight, standalone PowerShell solution that works even on customers' Windows systems.
 
 ---
 
@@ -21,7 +20,7 @@ This tool should bridges this gap with a lightweight, standalone PowerShell solu
 - **Avoiding Consent**: By default, the tool uses the Azure CLI client ID, enabling many MS Graph API actions without additional consent due to pre-consented permissions.
 - **Parameters**: A wide range of parameters allow you to customize the tool's behavior, such as enabling features like PKCE, CAE, and more, providing greater control during usage.
 - **Automation-Friendly**: Enables automated OAuth Auth Code Flow tests by disabling user selection, with the gathered tokens and claims exported to a CSV file.
-- **Experimental: Catching oAuth Codes on any URL**: Utilizes a legacy method to launch and control a browser, allowing automatic retrieval of the authorization code and seamless token exchange (Windows only). 
+- **Experimental: Catching OAuth Codes on any URL**: Utilizes a legacy method to launch and control a browser, allowing automatic retrieval of the authorization code and seamless token exchange (Windows only). 
 ---
 
 ## Images
@@ -59,6 +58,22 @@ The module includes the following commands:
 | `Invoke-ParseJwt`         | Decode a JWT and display its body properties.                         |-|
 | `Show-EntraTokenAidHelp`  | Show Help.                                                            |-|
 
+
+### Quick Start
+
+```powershell
+# Authenticate with default settings (MS Graph API, Azure CLI client)
+$tokens = Invoke-Auth
+
+# Get a token for Azure Resource Manager
+$tokens = Invoke-Auth -Api "management.azure.com"
+
+# Get a token with Device Code Flow (MS Graph API, Azure CLI client)
+$tokens = Invoke-DeviceCodeFlow
+
+# Refresh the token
+$tokens = Invoke-Refresh -RefreshToken $tokens.refresh_token
+```
 ---
 
 ## Module Functions
@@ -74,15 +89,15 @@ All parameters are optional.
 | Parameter            | Description                                                                 | Default Value                                     |
 |----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
-| **Scope**            | Scopes (space sperated) to be requested.                                    | `default offline_access`                          |
+| **Scope**            | Scopes (space separated) to be requested.                                   | `default offline_access`                          |
 | **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
 | **Port**             | Local port to listen on for the OAuth callback.                             | `13824`                                           |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
 | **RedirectURL**      | URL for the OAuth redirect.                                                 | `http://localhost:%PORT%`                         |
 | **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
-| **DisablePrompt**    | Suppresses interactive user selection. Used logged-in user directly         | `false`                                           |
-| **HttpTimeout**      | Time in seconds the HTTP Server waiting for OAuth callback.                 | `60`                                              |
+| **DisablePrompt**    | Suppresses interactive user selection. Uses the already logged-in user directly.    | `false`                                           |
+| **HttpTimeout**      | Time in seconds the HTTP server waits for the OAuth callback.               | `60`                                              |
 | **DisablePKCE**      | Disables the PKCE usage.                                                    | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
 | **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
@@ -93,7 +108,7 @@ All parameters are optional.
 | **UserAgent**        | User agent used (token endpoint) (impacts only non-interactive sign-ins)    | `python-requests/2.32.3`                          |  
 
 
-#### Examples Authentication
+#### Authentication Examples
 Perform authentication and retrieve tokens with default options (MS Graph API / Azure CLI as the client):
 ```powershell
 $Tokens = Invoke-Auth
@@ -170,15 +185,15 @@ All parameters are optional.
 
 #### Example
 
-Simpy start of the device code flow with default options.
+Simple start of the device code flow with default options.
 ```powershell
 Invoke-DeviceCodeFlow
 ```
-Get tokens for the AzureARM API
+Get tokens for the Azure Resource Manager API
 ```powershell
 Invoke-DeviceCodeFlow -API management.azure.com
 ```
-Authenticate using the device code flow specifiy the client id and api
+Authenticate using the device code flow, specifying the client ID and API.
 ```powershell
 $Token = Invoke-DeviceCodeFlow -ClientID "your-client-id" -Api "graph.microsoft.com"
 ```
@@ -207,7 +222,7 @@ All parameters are optional.
 | **ClientSecret**       | Client secret of the application (secure prompt if empty).                         | -|
 | **Tenant**             | Specific tenant id.                                                         | `-`                                   |
 | **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
-| **Scope**              | Scopes (space sperated) to be requested.                                    | `default`                          |
+| **Scope**              | Scopes (space separated) to be requested.                                    | `default`                          |
 | **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
 | **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
@@ -238,15 +253,15 @@ Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsP
 ### `Invoke-Refresh`
 
 Uses a refresh token to obtain a new access token, optionally for the same or a different API or client (for FOCI tokens).
-Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a refresh token from the Azure Portal, this allows retrieving MS Graph tokens using `ADIbizaUX` or `Microsoft_Azure_PIMCommon` as client. With the token, it is possible to for example read eligible role assignments (pre-consented scopes on MS Graph).
+Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a refresh token from the Azure Portal, this allows retrieving MS Graph tokens using `ADIbizaUX` or `Microsoft_Azure_PIMCommon` as client (BroCi Flow). With the token, it is possible to for example read eligible role assignments (pre-consented scopes on MS Graph).
 
 #### Parameters
 
 | Parameter            | Description                                                                 | Default Value                                     |
 |----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
-| **RefreshToken**     | Refresh token to used (MANDETORY).                                          | -                                                 |
+| **RefreshToken**     | Refresh token to be used (MANDATORY).                                       | -                                                 |
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
-| **Scope**            | Scopes (space sperated) to be requested.                                    | `default offline_access`                          |
+| **Scope**            | Scopes (space separated) to be requested.                                   | `default offline_access`                          |
 | **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **UserAgent**        | User agent used.                                                            | `python-requests/2.32.3`                          |  
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
@@ -281,7 +296,7 @@ $tokensOffice = invoke-refresh -RefreshToken $tokens.refresh_token -ClientID d35
 ```
 
 
-Refresh to ADIbizaUX client using the ```broker client id``` of the Azure portal (to use pre-consented permission)*:
+Refresh to ADIbizaUX client using the ```broker client id``` of the Azure portal (to use pre-consented permissions)*:
 ```powershell
 $refresh_token = "1.Aa4...." #Add refresh token from the Azure portal
 Invoke-Refresh -RefreshToken $refresh_token -clientid 74658136-14ec-4630-ad9b-26e160ff0fc6 -api graph.microsoft.com -BrkClientId c44b4083-3bb0-49c1-b47d-974e53cbdf3c -RedirectUri "brk-c44b4083-3bb0-49c1-b47d-974e53cbdf3c://entra.microsoft.com" -Origin "https://entra.microsoft.com"
@@ -354,7 +369,7 @@ The function is used automatically by other functions but can also be used manua
 
 | Parameter   | Description                                                        | Default Value                                     |
 |-------------|--------------------------------------------------------------------|---------------------------------------------------|
-| **JWT**     | The JWT to decode (MANDETORY).                                     | -                                                 |
+| **JWT**     | The JWT to decode (MANDATORY).                                     | -                                                 |
 
 #### Example
 Parse a JWT and display its claims:
@@ -378,8 +393,8 @@ The following functions are for internal use and are not exported by the module:
 It is **discouraged** to pass sensitive information, such as **Access Tokens** or especially **Refresh Tokens**, directly in the command line. 
 
 
-Command-line arguments are stored by default in the PowerShell history file in your profile, events, or security monitoring tools.
-Attackers which gain access to those files may abuse credentials like long-lived refresh tokens
+Command-line arguments are stored by default in the PowerShell history file in your profile, and may also appear in events or security monitoring tools.
+Attackers who gain access to those files may abuse credentials like long-lived refresh tokens
 
 ### Recommendations:
 - **Use variables** to store sensitive information in your script instead of passing it directly in the command line.
@@ -399,7 +414,7 @@ Attackers which gain access to those files may abuse credentials like long-lived
   [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory()
   set-content -Path (Get-PSReadLineOption).HistorySavePath -value ' '
    ```
-## Usefule Side Project
+## Useful Side Project
 
 If you need to determine which first-party clients support specific authentication methods and have pre-consented scopes for the Microsoft Graph API, I’ve just launched a side project that provides a comprehensive list of usable Entra ID first-party clients with pre-consented Microsoft Graph scopes.
 
@@ -419,6 +434,21 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+
+### 2025-12-14
+#### Added
+- Support for APIs like `urn:ms-drs:enterpriseregistration.windows.net` in the API parameter
+- Invoke-Auth now accepts a LoginHint parameter. This pre-fills the username on the sign-in page
+- `Show-EntraTokenAidHelp`: New helper function that displays the banner, available commands and common examples directly in the console
+
+#### Changed
+- Removed the automatic banner display when importing the module. Users can now explicitly run `Show-EntraTokenAidHelp` when needed
+- Updated the README with improved examples, corrected typos, the new help function and a clearer Quick Start section
+
+#### Fixed
+- Corrected the token expiration value in the CLI output and in the token object properties for `Invoke-DeviceCodeFlow` and `Invoke-ClientCredential`
+
+
 ### 2025-07-22
 #### Fixed
 - `Invoke-Auth` with `-ManualCode` or local HTTP redirect now also supports the `-Origin` parameter to authenticate at SPAs.
@@ -446,8 +476,8 @@ Note: Inspired by:
 #### Added
 - Experimental: Now, the OAuth code can be captured and exchanged for a token on any redirect URL. This expands the range of usable client IDs. This approach relies on a legacy built-in Windows feature, though its availability may be limited in the future. I'm not sure how this functions when used in conjunction with company proxies 😅. However, it remains the only method I can think of that avoids external dependencies like Selenium. Note that it is only available on Windows (tested on 10 & 11). Example:  
 `$tokens = Invoke-Auth -ClientID 'c0d2a505-13b8-4ae0-aa9e-cddd5eab0b12' -RedirectUrl 'https://login.microsoftonline.com/common/oauth2/nativeclient'`
-- The Invoke-Auth flow now supports an *Origin* paramater which is required to authenticate with the client id of custom Single-Page-Application (SPA). Example:  
-`$tokens = Invoke-Auth -ClientID '6558279b-b386-4da0-9c6b-4af9ccf94e97' -RedirectUrl 'https://MyValidrederictURL.ch' -Origin 'https://DoesNotMatter.ch'`
+- The Invoke-Auth flow now supports an *Origin* parameter which is required to authenticate with the client id of custom Single-Page-Application (SPA). Example:  
+`$tokens = Invoke-Auth -ClientID '6558279b-b386-4da0-9c6b-4af9ccf94e97' -RedirectUrl 'https://MyValidRedirectURL.ch' -Origin 'https://DoesNotMatter.ch'`
 
 #### Changed
 - Exchanging the authorization code for a token is now managed by a dedicated internal function.
@@ -458,7 +488,7 @@ Note: Inspired by:
 - Invoke-ClientCredential: Client credentials flow (atm. only by using credentials)
 
 #### Changed
-- Invoke Auth: Major overhault of the local HTTP Server:
+- Invoke Auth: Major overhaul of the local HTTP server:
   - Can now be stopped using Ctrl +C.
   - Better HTTP server error handling for improved stability
 
@@ -466,7 +496,7 @@ Note: Inspired by:
 - Invoke Auth: CAE issue when using Firefox
 
 #### Removed
-- Invoke Auth: Token details are not displayed in HTML anymore (because of HTTP-Server changes).
+- Invoke Auth: Token details are not displayed in HTML anymore (because of HTTP-server changes).
 
 
 ### 2024-12-30
