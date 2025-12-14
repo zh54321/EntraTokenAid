@@ -976,7 +976,7 @@ function Invoke-DeviceCodeFlow {
             }
             if ($TokensDeviceCode.access_token -and $TokensDeviceCode.refresh_token) {
                 Write-Host "[+] Got an access token and a refresh token"
-                $TokensDeviceCode | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+                $TokensDeviceCode | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($TokensDeviceCode.expires_in)
 
                 if (-not $DisableJwtParsing) {
                     #Parse JWT
@@ -1003,9 +1003,9 @@ function Invoke-DeviceCodeFlow {
                     if ($null -ne $JWT.xms_cc) {
                         $TokensDeviceCode | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
                     }
-                    Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+                    Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($TokensDeviceCode.expiration_time)"
                 } else {
-                    Write-Host "[i] Expires at: $($tokens.expiration_time)"
+                    Write-Host "[i] Expires at: $($TokensDeviceCode.expiration_time)"
                 }
                 
                 
@@ -1156,7 +1156,7 @@ function Invoke-ClientCredential {
     if ($Proceed) {
         if ($TokensClientCredential.access_token) {
             Write-Host "[+] Got an access token"
-            $TokensClientCredential | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+            $TokensClientCredential | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($TokensClientCredential.expires_in)
 
             if (-not $DisableJwtParsing) {
                 #Parse JWT
