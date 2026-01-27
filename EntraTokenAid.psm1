@@ -835,6 +835,10 @@ function Invoke-DeviceCodeFlow {
         .PARAMETER Api
         Specifies the target API for the authentication request.
         Default: `graph.microsoft.com`
+
+        .PARAMETER Scope
+        Specifies the API permissions (scopes) to request during authentication. Multiple scopes should be space-separated.
+        Default: `default offline_access`
         
         .PARAMETER DisableJwtParsing
         Disables parsing of the JWT access token. When set, the token is returned as-is without any additional information.
@@ -878,6 +882,7 @@ function Invoke-DeviceCodeFlow {
     param (
         [Parameter(Mandatory=$false)][string]$ClientID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
         [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Scope = "default offline_access",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$DisableBrowserStart = $false,
@@ -904,13 +909,13 @@ function Invoke-DeviceCodeFlow {
     $Headers["User-Agent"] = $UserAgent
     $Body = @{
         client_id   = $ClientID
-        resource    = $Resource
+        scope       = $ApiScopeUrl
     }
-    write-host "[*] Starting Device Code Flow: API $Resource / Client id: $ClientID"
+    write-host "[*] Starting Device Code Flow: API $Api / Scope $ApiScopeUrl / Client id: $ClientID"
 
     # Call the token endpoint to get the tokens
     Try {
-        $DeviceCodeDetails = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/devicecode?api-version=1.0" -Method POST -Body $Body -Headers $Headers
+        $DeviceCodeDetails = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/devicecode" -Method POST -Body $Body -Headers $Headers
     } Catch {
         $InitialError = $_ | ConvertFrom-Json  
         Write-Host "[!] Aborting...."
@@ -919,7 +924,7 @@ function Invoke-DeviceCodeFlow {
         if ($Reporting) {
             $ErrorDetails = [PSCustomObject]@{
                 ClientID    = $ClientID
-                ErrorLong   = $PollingError.error_description
+                ErrorLong   = $InitialError.error_description
             }
             Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "DeviceCode_errors.csv"
         }
@@ -933,12 +938,19 @@ function Invoke-DeviceCodeFlow {
         #Check if browser should be started automatically
         if (-not $DisableBrowserStart) {
             write-host "[*] Opening browser"
-            Start-Process $DeviceCodeDetails.verification_url
+            $VerificationUrl = $DeviceCodeDetails.verification_uri_complete
+            if (-not $VerificationUrl) {
+                $VerificationUrl = $DeviceCodeDetails.verification_uri
+            }
+            Start-Process $VerificationUrl
         } else {
             write-host "[i] Automatic Browser start disabled"
-            write-host "[i] Use the code at: $($DeviceCodeDetails.verification_url)"
+            if ($DeviceCodeDetails.verification_uri_complete) {
+                write-host "[i] Use the code at: $($DeviceCodeDetails.verification_uri_complete)"
+            } else {
+                write-host "[i] Use the code at: $($DeviceCodeDetails.verification_uri)"
+            }
         }
-
         $Body = @{
             client_id   = $ClientID
             grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
@@ -951,7 +963,7 @@ function Invoke-DeviceCodeFlow {
         while ($Counter -lt $MaxAttempts) {
             $Counter++
             Try {
-                $TokensDeviceCode = Invoke-RestMethod 'https://login.microsoftonline.com/Common/oauth2/token?api-version=1.0' -Method POST -Body $Body -Headers $Headers
+                $TokensDeviceCode = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/token" -Method POST -Body $Body -Headers $Headers
             } Catch {
                 $PollingError = $_ | ConvertFrom-Json
                 if ($PollingError.error -eq "authorization_pending") {
@@ -1633,7 +1645,7 @@ function Show-EntraTokenAidHelp {
 
     # Header
     Write-Host $banner -ForegroundColor Cyan
-    Write-Host "v20251214" -ForegroundColor Green
+    Write-Host "v20260127" -ForegroundColor Green
     Write-Host "Project Source: https://github.com/zh54321/EntraTokenAid" -ForegroundColor DarkCyan
     Write-Host ""
 
