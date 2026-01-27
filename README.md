@@ -89,7 +89,7 @@ All parameters are optional.
 | Parameter            | Description                                                                 | Default Value                                     |
 |----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
-| **Scope**            | Scopes (space separated) to be requested.                                   | `default offline_access`                          |
+| **Scope**            | Scopes (space separated) to be requested.                                   | `.default offline_access`                         |
 | **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
 | **Port**             | Local port to listen on for the OAuth callback.                             | `13824`                                           |
@@ -97,7 +97,7 @@ All parameters are optional.
 | **RedirectURL**      | URL for the OAuth redirect.                                                 | `http://localhost:%PORT%`                         |
 | **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
 | **DisablePrompt**    | Suppresses interactive user selection. Uses the already logged-in user directly.    | `false`                                           |
-| **HttpTimeout**      | Time in seconds the HTTP server waits for the OAuth callback.               | `60`                                              |
+| **HttpTimeout**      | Time in seconds the HTTP server waits for the OAuth callback.               | `180`                                              |
 | **DisablePKCE**      | Disables the PKCE usage.                                                    | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
 | **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
@@ -175,6 +175,7 @@ All parameters are optional.
 |----------------------  |-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**           | Specifies the clientID for authentication.                                  | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
 | **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
+| **Scope**              | Scopes (space separated) to be requested.                                   | `.default offline_access`                         |
 | **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
 | **Tenant**             | Specific tenant id.                                                         | `organizations`                                   |
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
@@ -215,14 +216,14 @@ $Tokens = Invoke-DeviceCodeFlow
 Authenticate using the client credential flow. Currently, only client secrets are supported.
 
 #### Parameters
-All parameters are optional.
+
 | Parameter              | Description                                                                 | Default Value                                     |
 |----------------------  |-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**           | Specifies the clientID for authentication.                                  | -|
 | **ClientSecret**       | Client secret of the application (secure prompt if empty).                         | -|
 | **Tenant**             | Specific tenant id.                                                         | `-`                                   |
 | **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
-| **Scope**              | Scopes (space separated) to be requested.                                    | `default`                          |
+| **Scope**              | Scopes (space separated) to be requested.                                    | `.default`                          |
 | **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
 | **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
@@ -261,7 +262,7 @@ Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a re
 |----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
 | **RefreshToken**     | Refresh token to be used (MANDATORY).                                       | -                                                 |
 | **ClientID**         | Specifies the client ID for authentication.                                 | `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Azure CLI)|
-| **Scope**            | Scopes (space separated) to be requested.                                   | `default offline_access`                          |
+| **Scope**            | Scopes (space separated) to be requested.                                   | `.default offline_access`                         |
 | **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **UserAgent**        | User agent used.                                                            | `python-requests/2.32.3`                          |  
 | **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
@@ -434,6 +435,18 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+
+### 2026-01-27
+
+#### Changed
+- Migrated device code flow to the v2 endpoints
+- Unified scope normalization across flows (simple scopes, GUID resources, full URIs, URN APIs)
+- Switched PKCE from `plain` to `S256`
+
+#### Fixed
+- Issue in Device Code Flow
+- Device code flow error reporting variable bug
+
 
 ### 2025-12-14
 #### Added
