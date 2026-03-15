@@ -2397,7 +2397,7 @@ function Invoke-ParseJwt {
 
         #Convert to Byte array and to string array
         $tokenByteArray = [System.Convert]::FromBase64String($TokenBody)
-        $tokenArray = [System.Text.Encoding]::ASCII.GetString($tokenByteArray)
+        $tokenArray = [System.Text.Encoding]::UTF8.GetString($tokenByteArray)
 
         #Convert from JSON to PS Object
         $TokenObject = $tokenArray | ConvertFrom-Json
