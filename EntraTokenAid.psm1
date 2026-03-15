@@ -2363,37 +2363,47 @@ function Invoke-ParseJwt {
 
         Parses the provided JWT and returns its decoded payload as a PowerShell object.
 
+        .EXAMPLE
+        $tokens.access_token | Invoke-ParseJwt
+
+        Parses the provided JWT from pipeline input and returns its decoded payload as a PowerShell object.
+
         .NOTES
         - The function validates the token structure by checking for a valid format (`header.payload.signature`) and Base64URL encoding.
         - Invalid tokens will generate an error.
     #>
 
     [cmdletbinding()]
-    param([Parameter(Mandatory=$true)][string]$jwt)
- 
-    #JWT verification
-    if (!$jwt.Contains(".") -or !$jwt.StartsWith("eyJ")) { 
-        if ($jwt.StartsWith("1.")) {
-            Write-Error "Invalid token! The refresh token can not be parsed since it is encrypted." -ErrorAction Stop
-        } else {
-            Write-Error "Invalid token!" -ErrorAction Stop 
+    param(
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [string]$jwt
+    )
+
+    process {
+        #JWT verification
+        if (!$jwt.Contains(".") -or !$jwt.StartsWith("eyJ")) { 
+            if ($jwt.StartsWith("1.")) {
+                Write-Error "Invalid token! The refresh token can not be parsed since it is encrypted." -ErrorAction Stop
+            } else {
+                Write-Error "Invalid token!" -ErrorAction Stop 
+            }
         }
+
+        #Process Token Body
+        $TokenBody = $jwt.Split(".")[1].Replace('-', '+').Replace('_', '/')
+        
+        #Fix padding as needed, keep adding "=" until string length modulus 4 reaches 0
+        while ($TokenBody.Length % 4) { Write-Verbose "Invalid length for a Base-64 char array or string, adding ="; $TokenBody += "=" }
+
+        #Convert to Byte array and to string array
+        $tokenByteArray = [System.Convert]::FromBase64String($TokenBody)
+        $tokenArray = [System.Text.Encoding]::ASCII.GetString($tokenByteArray)
+
+        #Convert from JSON to PS Object
+        $TokenObject = $tokenArray | ConvertFrom-Json
+
+        return $TokenObject
     }
-
-    #Process Token Body
-    $TokenBody = $jwt.Split(".")[1].Replace('-', '+').Replace('_', '/')
-    
-    #Fix padding as needed, keep adding "=" until string length modulus 4 reaches 0
-    while ($TokenBody.Length % 4) { Write-Verbose "Invalid length for a Base-64 char array or string, adding ="; $TokenBody += "=" }
-
-    #Convert to Byte array and to string array
-    $tokenByteArray = [System.Convert]::FromBase64String($TokenBody)
-    $tokenArray = [System.Text.Encoding]::ASCII.GetString($tokenByteArray)
-
-    #Convert from JSON to PS Object
-    $TokenObject = $tokenArray | ConvertFrom-Json
-
-    return $TokenObject
 }
 
 function Invoke-PrintTokenInfo {
@@ -2786,7 +2796,7 @@ function Show-EntraTokenAidHelp {
 
     # Header
     Write-Host $banner -ForegroundColor Cyan
-    Write-Host "v20260127" -ForegroundColor Green
+    Write-Host "v20260315" -ForegroundColor Green
     Write-Host "Project Source: https://github.com/zh54321/EntraTokenAid" -ForegroundColor DarkCyan
     Write-Host ""
 

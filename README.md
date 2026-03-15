@@ -534,7 +534,12 @@ The function is used automatically by other functions but can also be used manua
 #### Example
 Parse a JWT and display its claims:
 ```powershell
-Invoke-ParseJwt -JWT $Tokens.access_token
+Invoke-ParseJwt -Jwt $Tokens.access_token
+```
+
+Parse a JWT from pipeline input:
+```powershell
+$Tokens.access_token | Invoke-ParseJwt
 ```
 
 ---
