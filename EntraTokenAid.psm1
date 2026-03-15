@@ -204,7 +204,8 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
         [Parameter(Mandatory=$false)][string]$Origin,
         [Parameter(Mandatory=$false)][string]$ReportName = "Code",
-        [Parameter(Mandatory=$false)][string]$LoginHint
+        [Parameter(Mandatory=$false)][string]$LoginHint,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $AuthError = $false
@@ -215,14 +216,14 @@ function Invoke-Auth {
     } else {
         if ($RedirectURL -like "*localhost*" -or $RedirectURL -like "*::1*" -or $RedirectURL -like "*127.0.0.1*" -or $RedirectURL -like "*0.0.0.0*") {
             $AuthMode = "LocalHTTP"
-            write-host "[*] Local redirect URL used. Starting local HTTP Server.."
+            Write-StatusMessage -Message "[*] Local redirect URL used. Starting local HTTP Server.." -Silent:$Silent
         } else {
             $AuthMode = "MiscUrl"
-            write-host "[*] External redirect URL used"
+            Write-StatusMessage -Message "[*] External redirect URL used" -Silent:$Silent
 
             if (-not ($env:OS -match "Windows")) {
-                write-host "[!] Unfortunately, OAuth code with external URLs is only supported on Windows, as it relies on legacy Windows-only .NET components."
-                write-host "[!] Use a local redirect URI (e.g http://localhost:$($Port)), manual code flow (-ManualCode) or the devicecode flow."
+                Write-StatusMessage -Message "[!] Unfortunately, OAuth code with external URLs is only supported on Windows, as it relies on legacy Windows-only .NET components." -Silent:$Silent
+                Write-StatusMessage -Message "[!] Use a local redirect URI (e.g http://localhost:$($Port)), manual code flow (-ManualCode) or the devicecode flow." -Silent:$Silent
                 break
             }
         }
@@ -280,17 +281,17 @@ function Invoke-Auth {
         } Catch {
             $HttpStartError = $_
             if ($HttpStartError -match "because it conflicts with an existing registration on the machine") {
-                Write-Host "[!] The port $Port is already blocked by another process."
-                Write-Host "[!] Close the other process or use -port to define another port."
+                Write-StatusMessage -Message "[!] The port $Port is already blocked by another process." -Silent:$Silent
+                Write-StatusMessage -Message "[!] Close the other process or use -port to define another port." -Silent:$Silent
             } else {
-                write-host "[!] ERROR: $HttpStartError"
+                Write-StatusMessage -Message "[!] ERROR: $HttpStartError" -Silent:$Silent
             }
         }
             
         if ($HttpListener.IsListening) {
-            write-host "[+] HTTP server running on http://localhost:$Port/"
-            write-host "[i] Listening for OAuth callback for $HttpTimeout s (HttpTimeout value) "
-            write-host "[i] Press Ctrl+C to stop manually."
+            Write-StatusMessage -Message "[+] HTTP server running on http://localhost:$Port/" -Silent:$Silent
+            Write-StatusMessage -Message "[i] Listening for OAuth callback for $HttpTimeout s (HttpTimeout value) " -Silent:$Silent
+            Write-StatusMessage -Message "[i] Press Ctrl+C to stop manually." -Silent:$Silent
 
             # Variable to control the server loop
             $KeepRunning = $true
@@ -383,7 +384,7 @@ function Invoke-Auth {
             
                         # Check if the runtime exceeds the timeout (if set)
                         if ($HttpTimeout -gt 0 -and ([datetime]::Now - $StartTime).TotalSeconds -ge $HttpTimeout) {
-                            Write-Host "[!] Runtime limit reached. Stopping the server..."
+                            Write-StatusMessage -Message "[!] Runtime limit reached. Stopping the server..." -Silent:$Silent
                             $AuthError = $true
                             $Proceed = $false
 
@@ -402,7 +403,7 @@ function Invoke-Auth {
                             #Null check to avoid the script crashing
                             if ($Request.HttpMethod -eq 'GET' -and $Request.QueryString -match "\bcode\b") {
 
-                                write-host "[+] Got OAuth callback request containing CODE"
+                                Write-StatusMessage -Message "[+] Got OAuth callback request containing CODE" -Silent:$Silent
 
                                 $RawUrl =  $($Request.RawUrl)
             
@@ -420,8 +421,8 @@ function Invoke-Auth {
                                 $StateResponse = $QueryParams["state"]
                                 
                                 if ($StateResponse -ne $State) {
-                                    write-host "[!] Error: Wrong state received from IDP. Aborting..."
-                                    write-host "[!] Error: Received $StateResponse but expected $State"
+                                    Write-StatusMessage -Message "[!] Error: Wrong state received from IDP. Aborting..." -Silent:$Silent
+                                    Write-StatusMessage -Message "[!] Error: Received $StateResponse but expected $State" -Silent:$Silent
                                     $AuthError = $true
                                     $Proceed = $false
                                     $ErrorDetails = [PSCustomObject]@{
@@ -432,11 +433,11 @@ function Invoke-Auth {
                                 }
 
                                 #Call the token endpoint
-                                $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent
+                                $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
                                 $Proceed = $false
 
                             } elseif ($Request.HttpMethod -eq 'GET' -and $($Request.QueryString) -match "\berror\b") {
-                                write-host "[!] Got OAuth callback request containing an ERROR"
+                                Write-StatusMessage -Message "[!] Got OAuth callback request containing an ERROR" -Silent:$Silent
                                 $QueryString = $($Request.QueryString)
                                 $RawUrl =  $($Request.RawUrl)
             
@@ -456,9 +457,9 @@ function Invoke-Auth {
                                 $ErrorDescription = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_description"]) 
                                 $MoreInfo = [System.Web.HttpUtility]::UrlDecode($QueryParams["error_uri"]) 
             
-                                write-host "[!] Error in OAuth Callback: $ErrorShort"
-                                write-host "[!] Description: $ErrorDescription"
-                                write-host "[!] More info: $MoreInfo"
+                                Write-StatusMessage -Message "[!] Error in OAuth Callback: $ErrorShort" -Silent:$Silent
+                                Write-StatusMessage -Message "[!] Description: $ErrorDescription" -Silent:$Silent
+                                Write-StatusMessage -Message "[!] More info: $MoreInfo" -Silent:$Silent
 
                                 #Handle errors
                                 $AuthError = $true
@@ -473,9 +474,9 @@ function Invoke-Auth {
                                 break
 
                             } elseif ($null -ne $Request -and $Request -is [System.Net.HttpListenerRequest]) {
-                                Write-Host "[*] Got request without OAuth Code: $($Request.HttpMethod) $($Request.RawUrl))"
+                                Write-StatusMessage -Message "[*] Got request without OAuth Code: $($Request.HttpMethod) $($Request.RawUrl))" -Silent:$Silent
                             } else {
-                                Write-Host "[!] Request caused an error: $Request"
+                                Write-StatusMessage -Message "[!] Request caused an error: $Request" -Silent:$Silent
                             }
                         }
 
@@ -483,7 +484,7 @@ function Invoke-Auth {
             
                 } finally {
                     #Cleaning up
-                    Write-Host "[*] Stopping the server..."
+                    Write-StatusMessage -Message "[*] Stopping the server..." -Silent:$Silent
                     $KeepRunning = $false
                     Start-Sleep -Milliseconds 500 # Allow the loop in the runspace to complete
                     $HttpListener.Stop()
@@ -491,14 +492,14 @@ function Invoke-Auth {
                     $PSInstance.Dispose()
                     $Runspace.Close()
                     $Runspace.Dispose()
-                    Write-Host "[*] Server stopped."
+                    Write-StatusMessage -Message "[*] Server stopped." -Silent:$Silent
                 }
             }
 
             Return $tokens
 
         } else {
-            write-host "[!] Error starting the HTTP Server!"
+            Write-StatusMessage -Message "[!] Error starting the HTTP Server!" -Silent:$Silent
         }
     }
 
@@ -523,7 +524,7 @@ function Invoke-Auth {
             ScriptErrorsSuppressed  = $true
         }
 
-        write-host "[*] Spawning embedded Browser"
+        Write-StatusMessage -Message "[*] Spawning embedded Browser" -Silent:$Silent
         $WebBrowser = New-Object -TypeName System.Windows.Forms.WebBrowser -Property $WebBrowserProperties
 
         $WebBrowser.Add_DocumentCompleted({
@@ -539,7 +540,7 @@ function Invoke-Auth {
                 
                 #Scanning URL for code or error parameters and the body for strings which appears on errors
                 if ($Url -match 'error=[^&]*') {
-                    write-host "[!] Error parameter in URL detected"
+                    Write-StatusMessage -Message "[!] Error parameter in URL detected" -Silent:$Silent
                     # Extracting the 'error_description' parameter
                     $UrlParams = $Url -split '\?' | Select-Object -Last 1
                     $QueryParams = $UrlParams -split '&' | ForEach-Object {
@@ -548,7 +549,7 @@ function Invoke-Auth {
                     }
                     $ErrorMessage = ($QueryParams | Where-Object { $_.Key -eq "error_description" }).Value
                     $Form.Close()
-                    Write-Host "[!] Error Message: $ErrorMessage"
+                    Write-StatusMessage -Message "[!] Error Message: $ErrorMessage" -Silent:$Silent
                     if ($Reporting) {
                         #Create Error Object to use in reporting
                         $ErrorDetails = [PSCustomObject]@{
@@ -562,10 +563,10 @@ function Invoke-Auth {
                     foreach ($Script in $Scripts) {
                         $ScriptText = $Script.InnerText
                         if ($ScriptText -match '"strServiceExceptionMessage":"(.*?)"') {
-                            write-host "[!] ServiceExceptionMessage in page body detected"
+                            Write-StatusMessage -Message "[!] ServiceExceptionMessage in page body detected" -Silent:$Silent
                             $ErrorMessage = $matches[1] -replace '\\u0026#39;', "'"  # Replace encoded characters
                             $Form.Close()
-                            Write-Host "[!] Error Message: $ErrorMessage"
+                            Write-StatusMessage -Message "[!] Error Message: $ErrorMessage" -Silent:$Silent
                             if ($Reporting) {
                                 #Create Error Object to use in reporting
                                 $ErrorDetails = [PSCustomObject]@{
@@ -592,9 +593,9 @@ function Invoke-Auth {
         $Form.Dispose()
 
         if ($AuthorizationCode) {
-            write-host "[+] Got an AuthCode"
+            Write-StatusMessage -Message "[+] Got an AuthCode" -Silent:$Silent
             #Use function to call the Token endpoint
-            $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent
+            $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
             return $tokens 
         }
     }
@@ -602,15 +603,15 @@ function Invoke-Auth {
     # If manual code flow is used
     if ($AuthMode -eq "ManualCode") {
         if (-not $SkipGen) {
-            write-host "[i] The authentication URL has been copied to your clipboard:"
-            write-host $Url
+            Write-StatusMessage -Message "[i] The authentication URL has been copied to your clipboard:" -Silent:$Silent
+            Write-StatusMessage -Message $Url -Silent:$Silent
             set-clipboard $Url
-            write-host "[i] Open the URL in your browser, authenticate, and copy the full redirected URL (it contains the authorization code) to your clipboard."
+            Write-StatusMessage -Message "[i] Open the URL in your browser, authenticate, and copy the full redirected URL (it contains the authorization code) to your clipboard." -Silent:$Silent
         } else {
-            write-host "[i] Copy the full redirected URL (it contains the authorization code) to your clipboard."
+            Write-StatusMessage -Message "[i] Copy the full redirected URL (it contains the authorization code) to your clipboard." -Silent:$Silent
         }
         
-        Write-Host "[i] Press Enter when done, or press CTRL + C to abort."
+        Write-StatusMessage -Message "[i] Press Enter when done, or press CTRL + C to abort." -Silent:$Silent
         $WaitForCode = $true
         while ($WaitForCode) {
 
@@ -630,8 +631,8 @@ function Invoke-Auth {
             }
 
             If ($null -eq $QueryParams["code"]) {
-                write-host "[!] The clipboard does not contain a URL with a 'code' parameter (code=...)"
-                Write-Host "[i] After authenticating, copy the full redirected URL and press Enter when ready (or press CTRL + C to abort)."
+                Write-StatusMessage -Message "[!] The clipboard does not contain a URL with a 'code' parameter (code=...)" -Silent:$Silent
+                Write-StatusMessage -Message "[i] After authenticating, copy the full redirected URL and press Enter when ready (or press CTRL + C to abort)." -Silent:$Silent
             } else {
                 $WaitForCode = $false
             }
@@ -641,8 +642,8 @@ function Invoke-Auth {
         $StateResponse = $QueryParams["state"]
 
         if (-not $SkipGen -and $StateResponse -ne $State) {
-            write-host "[!] Error: Wrong state received from IDP. Aborting..."
-            write-host "[!] Error: Received $StateResponse but expected $State"
+            Write-StatusMessage -Message "[!] Error: Wrong state received from IDP. Aborting..." -Silent:$Silent
+            Write-StatusMessage -Message "[!] Error: Received $StateResponse but expected $State" -Silent:$Silent
             $AuthError = $true
             $Proceed = $false
             $ErrorDetails = [PSCustomObject]@{
@@ -653,7 +654,7 @@ function Invoke-Auth {
         }
     
         #Call the token endpoint
-        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent
+        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
         return $tokens
     }
 }
@@ -737,7 +738,8 @@ function Invoke-Refresh {
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
         [Parameter(Mandatory=$false)][string]$Origin,
         [Parameter(Mandatory=$false)][string]$BrkClientId,
-        [Parameter(Mandatory=$false)][string]$RedirectUri
+        [Parameter(Mandatory=$false)][string]$RedirectUri,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     #Define headers (Emulates Azure CLI)
@@ -780,7 +782,7 @@ function Invoke-Refresh {
         $Body.Add("redirect_uri", $RedirectUri)
     }    
 
-    Write-Host "[*] Sending request to token endpoint"
+    Write-StatusMessage -Message "[*] Sending request to token endpoint" -Silent:$Silent
     # Call the token endpoint to get the tokens
     $Proceed = $true
 
@@ -788,7 +790,7 @@ function Invoke-Refresh {
     Try {
         $tokens = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/token" -Method POST -Body $Body -Headers $Headers
     } Catch {
-        Write-Host "[!] Request Error:"
+        Write-StatusMessage -Message "[!] Request Error:" -Silent:$Silent
         $RequestError = $_ 
         $ParsedError = $null
 
@@ -798,8 +800,8 @@ function Invoke-Refresh {
             if ($ParsedError.PSObject.Properties["error"] -and $ParsedError.PSObject.Properties["error_description"]) {
                 $ErrorShort = $ParsedError.error
                 $ErrorLong = $ParsedError.error_description
-                Write-Host "[!] Error: $ErrorShort"
-                Write-Host "[!] Error Description: $ErrorLong"
+                Write-StatusMessage -Message "[!] Error: $ErrorShort" -Silent:$Silent
+                Write-StatusMessage -Message "[!] Error Description: $ErrorLong" -Silent:$Silent
 
                 if ($Reporting) {
                     $ErrorDetails = [PSCustomObject]@{
@@ -810,19 +812,19 @@ function Invoke-Refresh {
                 }
 
             } else {
-                Write-Host "[!] Unknown error: $RequestError"
+                Write-StatusMessage -Message "[!] Unknown error: $RequestError" -Silent:$Silent
             }
         }
-        Write-Host "[!] Aborting...."
+        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
         $Proceed = $false
     }
 
     #Check if answer contains an access token (refresh token can be omitted)
     if ($tokens.access_token -and $Proceed) {
         if ($tokens.refresh_token) {
-            Write-Host "[+] Got an access token and a refresh token"
+            Write-StatusMessage -Message "[+] Got an access token and a refresh token" -Silent:$Silent
         } else {
-            Write-Host "[+] Got an access token (no refresh token requested)"
+            Write-StatusMessage -Message "[+] Got an access token (no refresh token requested)" -Silent:$Silent
         }
         $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
     
@@ -835,8 +837,8 @@ function Invoke-Refresh {
             } Catch {
                 
                 $JwtParseError = $_ 
-                Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                Write-Host "[!] Aborting...."
+                Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
                 break
             }
 
@@ -853,9 +855,9 @@ function Invoke-Refresh {
             if ($null -ne $JWT.xms_cc) {
                 $tokens | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
             }
-            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)" -Silent:$Silent
         } else {
-            Write-Host "[i] Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Expires at: $($tokens.expiration_time)" -Silent:$Silent
         }
         
         #Print token info if switch is used
@@ -869,7 +871,7 @@ function Invoke-Refresh {
         }
         Return $tokens
     } elseif($Proceed) {
-        Write-Host "[!] The answer obtained from the token endpoint do not contains tokens"
+        Write-StatusMessage -Message "[!] The answer obtained from the token endpoint do not contains tokens" -Silent:$Silent
     }
     
 }
@@ -944,7 +946,8 @@ function Invoke-DeviceCodeFlow {
         [Parameter(Mandatory=$false)][switch]$DisableBrowserStart = $false,
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $Proceed = $true
@@ -959,16 +962,16 @@ function Invoke-DeviceCodeFlow {
         client_id   = $ClientID
         scope       = $ApiScopeUrl
     }
-    write-host "[*] Starting Device Code Flow: API: $Api / Client id: $ClientID"
+    Write-StatusMessage -Message "[*] Starting Device Code Flow: API: $Api / Client id: $ClientID" -Silent:$Silent
 
     # Call the token endpoint to get the tokens
     Try {
         $DeviceCodeDetails = Invoke-RestMethod "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/devicecode" -Method POST -Body $Body -Headers $Headers
     } Catch {
         $InitialError = $_ | ConvertFrom-Json  
-        Write-Host "[!] Aborting...."
-        Write-Host "[!] Error: $($InitialError.error)"
-        Write-Host "[!] Error Description: $($InitialError.error_description)"
+        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error: $($InitialError.error)" -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error Description: $($InitialError.error_description)" -Silent:$Silent
         if ($Reporting) {
             $ErrorDetails = [PSCustomObject]@{
                 ClientID    = $ClientID
@@ -981,22 +984,22 @@ function Invoke-DeviceCodeFlow {
     
     if ($Proceed) {
         Set-Clipboard $DeviceCodeDetails.user_code
-        write-host "[i] User code: $($DeviceCodeDetails.user_code). Copied to clipboard..."
+        Write-StatusMessage -Message "[i] User code: $($DeviceCodeDetails.user_code). Copied to clipboard..." -Silent:$Silent
 
         #Check if browser should be started automatically
         if (-not $DisableBrowserStart) {
-            write-host "[*] Opening browser"
+            Write-StatusMessage -Message "[*] Opening browser" -Silent:$Silent
             $VerificationUrl = $DeviceCodeDetails.verification_uri_complete
             if (-not $VerificationUrl) {
                 $VerificationUrl = $DeviceCodeDetails.verification_uri
             }
             Start-Process $VerificationUrl
         } else {
-            write-host "[i] Automatic Browser start disabled"
+            Write-StatusMessage -Message "[i] Automatic Browser start disabled" -Silent:$Silent
             if ($DeviceCodeDetails.verification_uri_complete) {
-                write-host "[i] Use the code at: $($DeviceCodeDetails.verification_uri_complete)"
+                Write-StatusMessage -Message "[i] Use the code at: $($DeviceCodeDetails.verification_uri_complete)" -Silent:$Silent
             } else {
-                write-host "[i] Use the code at: $($DeviceCodeDetails.verification_uri)"
+                Write-StatusMessage -Message "[i] Use the code at: $($DeviceCodeDetails.verification_uri)" -Silent:$Silent
             }
         }
         $Body = @{
@@ -1015,14 +1018,14 @@ function Invoke-DeviceCodeFlow {
             } Catch {
                 $PollingError = $_ | ConvertFrom-Json
                 if ($PollingError.error -eq "authorization_pending") {
-                    Write-Host "[*] Authentication is pending. Continue polling ($Counter/$MaxAttempts)..."
+                    Write-StatusMessage -Message "[*] Authentication is pending. Continue polling ($Counter/$MaxAttempts)..." -Silent:$Silent
                 } elseif ($PollingError.error -eq "code_expired") {
-                    Write-Host "[!] Verification code expired. Aborting...."
+                    Write-StatusMessage -Message "[!] Verification code expired. Aborting...." -Silent:$Silent
                     break
                 } else {
-                    Write-Host "[!] Unknown error: Aborting...."
-                    Write-Host "[!] Error: $($PollingError.error)"
-                    Write-Host "[!] Error Description: $($PollingError.error_description)"
+                    Write-StatusMessage -Message "[!] Unknown error: Aborting...." -Silent:$Silent
+                    Write-StatusMessage -Message "[!] Error: $($PollingError.error)" -Silent:$Silent
+                    Write-StatusMessage -Message "[!] Error Description: $($PollingError.error_description)" -Silent:$Silent
                     if ($Reporting) {
                         $ErrorDetails = [PSCustomObject]@{
                             ClientID    = $ClientID
@@ -1036,9 +1039,9 @@ function Invoke-DeviceCodeFlow {
             }
             if ($TokensDeviceCode.access_token) {
                 if ($TokensDeviceCode.refresh_token) {
-                    Write-Host "[+] Got an access token and a refresh token"
+                    Write-StatusMessage -Message "[+] Got an access token and a refresh token" -Silent:$Silent
                 } else {
-                    Write-Host "[+] Got an access token (no refresh token requested)"
+                    Write-StatusMessage -Message "[+] Got an access token (no refresh token requested)" -Silent:$Silent
                 }
                 $TokensDeviceCode | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($TokensDeviceCode.expires_in)
 
@@ -1049,8 +1052,8 @@ function Invoke-DeviceCodeFlow {
                         $JWT = Invoke-ParseJwt -jwt $TokensDeviceCode.access_token
                     } Catch {
                         $JwtParseError = $_ 
-                        Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                        Write-Host "[!] Aborting...."
+                        Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
                         break
                     }
             
@@ -1067,9 +1070,9 @@ function Invoke-DeviceCodeFlow {
                     if ($null -ne $JWT.xms_cc) {
                         $TokensDeviceCode | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
                     }
-                    Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($TokensDeviceCode.expiration_time)"
+                    Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($TokensDeviceCode.expiration_time)" -Silent:$Silent
                 } else {
-                    Write-Host "[i] Expires at: $($TokensDeviceCode.expiration_time)"
+                    Write-StatusMessage -Message "[i] Expires at: $($TokensDeviceCode.expiration_time)" -Silent:$Silent
                 }
                 
                 
@@ -1086,7 +1089,7 @@ function Invoke-DeviceCodeFlow {
             }
         }
         if ($Counter -eq $MaxAttempts) {
-            Write-Host "[i] Max polling attempts reached. Aborting..."
+            Write-StatusMessage -Message "[i] Max polling attempts reached. Aborting..." -Silent:$Silent
         }
         Return $TokensDeviceCode
     }
@@ -1113,6 +1116,21 @@ function Resolve-FilePathFromPsPath {
         return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
     } catch {
         throw "Unable to resolve path '$Path'. Ensure it points to a filesystem location. Error: $($_.Exception.Message)"
+    }
+}
+
+function Write-StatusMessage {
+    <#
+        .SYNOPSIS
+        Writes a status message unless silent mode is enabled.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$Message,
+        [Parameter(Mandatory=$false)][bool]$Silent
+    )
+
+    if (-not $Silent) {
+        Write-Host $Message
     }
 }
 
@@ -1375,7 +1393,8 @@ function Invoke-ClientCredential {
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$true)][string]$TenantId,
         [Parameter(Mandatory=$false)][string]$FmiPath,
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $Proceed = $true
@@ -1472,7 +1491,7 @@ function Invoke-ClientCredential {
         $body['fmi_path'] = $FmiPath
     }
 
-    write-host "[*] Starting Client Credential flow: API $Api / Client id: $ClientID / Auth: $authMethod"
+    Write-StatusMessage -Message "[*] Starting Client Credential flow: API $Api / Client id: $ClientID / Auth: $authMethod" -Silent:$Silent
     Try {
         $TokensClientCredential = Invoke-RestMethod -Method Post -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
     } Catch {
@@ -1489,13 +1508,13 @@ function Invoke-ClientCredential {
             } catch {}
         }
 
-        Write-Host "[!] Aborting...."
+        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
         if ($InitialError) {
-            Write-Host "[!] Error: $($InitialError.error)"
-            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            Write-StatusMessage -Message "[!] Error: $($InitialError.error)" -Silent:$Silent
+            Write-StatusMessage -Message "[!] Error Description: $($InitialError.error_description)" -Silent:$Silent
             $ErrorLong = $InitialError.error_description
         } else {
-            Write-Host "[!] Error: $($_.Exception.Message)"
+            Write-StatusMessage -Message "[!] Error: $($_.Exception.Message)" -Silent:$Silent
             $ErrorLong = $_.Exception.Message
         }
 
@@ -1511,7 +1530,7 @@ function Invoke-ClientCredential {
 
     if ($Proceed) {
         if ($TokensClientCredential.access_token) {
-            Write-Host "[+] Got an access token"
+            Write-StatusMessage -Message "[+] Got an access token" -Silent:$Silent
             $TokensClientCredential | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($TokensClientCredential.expires_in)
 
             if (-not $DisableJwtParsing) {
@@ -1521,8 +1540,8 @@ function Invoke-ClientCredential {
                     $JWT = Invoke-ParseJwt -jwt $TokensClientCredential.access_token
                 } Catch {
                     $JwtParseError = $_ 
-                    Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                    Write-Host "[!] Aborting...."
+                    Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                    Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
                     break
                 }
 
@@ -1533,9 +1552,9 @@ function Invoke-ClientCredential {
                 if ($JWT.roles) {$TokensClientCredential | Add-Member -NotePropertyName roles -NotePropertyValue $JWT.roles}
                 $TokensClientCredential | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
                 $TokensClientCredential | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
-                Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($TokensClientCredential.expiration_time)"
+                Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($TokensClientCredential.expiration_time)" -Silent:$Silent
             } else {
-                Write-Host "[i] Expires at: $($TokensClientCredential.expiration_time)"
+                Write-StatusMessage -Message "[i] Expires at: $($TokensClientCredential.expiration_time)" -Silent:$Silent
             }
             
             
@@ -1631,7 +1650,8 @@ function Invoke-ROPC {
         [Parameter(Mandatory=$false)][switch]$DisableCAE = $false,
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $Proceed = $true
@@ -1670,7 +1690,7 @@ function Invoke-ROPC {
         $body["claims"] = '{"access_token": {"xms_cc": {"values": ["CP1"]}}}'
     }
 
-    Write-Host "[*] Starting ROPC flow: API $Api / Client id: $ClientID / User: $Username"
+    Write-StatusMessage -Message "[*] Starting ROPC flow: API $Api / Client id: $ClientID / User: $Username" -Silent:$Silent
     try {
         $TokensRopc = Invoke-RestMethod -Method POST -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
     } catch {
@@ -1687,13 +1707,13 @@ function Invoke-ROPC {
             } catch {}
         }
 
-        Write-Host "[!] Aborting...."
+        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
         if ($InitialError) {
-            Write-Host "[!] Error: $($InitialError.error)"
-            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            Write-StatusMessage -Message "[!] Error: $($InitialError.error)" -Silent:$Silent
+            Write-StatusMessage -Message "[!] Error Description: $($InitialError.error_description)" -Silent:$Silent
             $ErrorLong = $InitialError.error_description
         } else {
-            Write-Host "[!] Error: $($_.Exception.Message)"
+            Write-StatusMessage -Message "[!] Error: $($_.Exception.Message)" -Silent:$Silent
             $ErrorLong = $_.Exception.Message
         }
 
@@ -1710,9 +1730,9 @@ function Invoke-ROPC {
 
     if ($Proceed -and $TokensRopc.access_token) {
         if ($TokensRopc.refresh_token) {
-            Write-Host "[+] Got an access token and a refresh token"
+            Write-StatusMessage -Message "[+] Got an access token and a refresh token" -Silent:$Silent
         } else {
-            Write-Host "[+] Got an access token (no refresh token requested)"
+            Write-StatusMessage -Message "[+] Got an access token (no refresh token requested)" -Silent:$Silent
         }
         $TokensRopc | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($TokensRopc.expires_in)
 
@@ -1721,8 +1741,8 @@ function Invoke-ROPC {
                 $JWT = Invoke-ParseJwt -jwt $TokensRopc.access_token
             } catch {
                 $JwtParseError = $_
-                Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                Write-Host "[!] Aborting...."
+                Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
                 return $TokensRopc
             }
 
@@ -1744,9 +1764,9 @@ function Invoke-ROPC {
             if ($null -ne $JWT.xms_cc) {
                 $TokensRopc | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
             }
-            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($TokensRopc.expiration_time)"
+            Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($TokensRopc.expiration_time)" -Silent:$Silent
         } else {
-            Write-Host "[i] Expires at: $($TokensRopc.expiration_time)"
+            Write-StatusMessage -Message "[i] Expires at: $($TokensRopc.expiration_time)" -Silent:$Silent
         }
 
         if ($TokenOut) {
@@ -1759,7 +1779,7 @@ function Invoke-ROPC {
 
         return $TokensRopc
     } elseif ($Proceed) {
-        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
     }
 }
 
@@ -1785,7 +1805,8 @@ function Get-BlueprintAgentAssertionToken {
         [Parameter(Mandatory=$false)][string]$BlueprintClientAssertion,
         [Parameter(Mandatory=$false)][string]$FmiPath,
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     if (-not [string]::IsNullOrWhiteSpace($BlueprintToken)) {
@@ -1826,6 +1847,9 @@ function Get-BlueprintAgentAssertionToken {
 
     if ($Reporting) {
         $blueprintSplat["Reporting"] = $true
+    }
+    if ($Silent) {
+        $blueprintSplat["Silent"] = $true
     }
 
     if ($hasSecret) {
@@ -1874,7 +1898,8 @@ function Invoke-AgentJwtBearerExchange {
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
         [Parameter(Mandatory=$false)][string]$ReportOutputFile = "AgentExchange_report.csv",
-        [Parameter(Mandatory=$false)][string]$ErrorOutputFile = "AgentExchange_errors.csv"
+        [Parameter(Mandatory=$false)][string]$ErrorOutputFile = "AgentExchange_errors.csv",
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $Proceed = $true
@@ -1895,7 +1920,7 @@ function Invoke-AgentJwtBearerExchange {
         $body["username"] = $Username
     }
 
-    Write-Host "[*] Calling Agent ID token exchange endpoint"
+    Write-StatusMessage -Message "[*] Calling Agent ID token exchange endpoint" -Silent:$Silent
     try {
         $tokens = Invoke-RestMethod -Method POST -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
     } catch {
@@ -1911,13 +1936,13 @@ function Invoke-AgentJwtBearerExchange {
             } catch {}
         }
 
-        Write-Host "[!] Aborting...."
+        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
         if ($InitialError) {
-            Write-Host "[!] Error: $($InitialError.error)"
-            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            Write-StatusMessage -Message "[!] Error: $($InitialError.error)" -Silent:$Silent
+            Write-StatusMessage -Message "[!] Error Description: $($InitialError.error_description)" -Silent:$Silent
             $ErrorLong = $InitialError.error_description
         } else {
-            Write-Host "[!] Error: $($_.Exception.Message)"
+            Write-StatusMessage -Message "[!] Error: $($_.Exception.Message)" -Silent:$Silent
             $ErrorLong = $_.Exception.Message
         }
 
@@ -1933,7 +1958,7 @@ function Invoke-AgentJwtBearerExchange {
     }
 
     if ($Proceed -and $tokens -and $tokens.access_token) {
-        Write-Host "[+] Got an access token"
+        Write-StatusMessage -Message "[+] Got an access token" -Silent:$Silent
         $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
 
         if (-not $DisableJwtParsing) {
@@ -1941,8 +1966,8 @@ function Invoke-AgentJwtBearerExchange {
                 $JWT = Invoke-ParseJwt -jwt $tokens.access_token
             } catch {
                 $JwtParseError = $_
-                Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                Write-Host "[!] Aborting...."
+                Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
                 return $tokens
             }
 
@@ -1958,9 +1983,9 @@ function Invoke-AgentJwtBearerExchange {
             } elseif ($JWT.preferred_username) {
                 $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.preferred_username
             }
-            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)" -Silent:$Silent
         } else {
-            Write-Host "[i] Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Expires at: $($tokens.expiration_time)" -Silent:$Silent
         }
 
         if ($TokenOut) {
@@ -1975,7 +2000,7 @@ function Invoke-AgentJwtBearerExchange {
     }
 
     if ($Proceed) {
-        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
     }
 
     return $null
@@ -1999,7 +2024,8 @@ function Invoke-AgentUserFicExchange {
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
         [Parameter(Mandatory=$false)][string]$ReportOutputFile = "AgentUser_report.csv",
-        [Parameter(Mandatory=$false)][string]$ErrorOutputFile = "AgentUser_errors.csv"
+        [Parameter(Mandatory=$false)][string]$ErrorOutputFile = "AgentUser_errors.csv",
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     if ([string]::IsNullOrWhiteSpace($Username) -and [string]::IsNullOrWhiteSpace($UserId)) {
@@ -2025,7 +2051,7 @@ function Invoke-AgentUserFicExchange {
         $body["username"] = $Username
     }
 
-    Write-Host "[*] Calling Agent ID user_fic token exchange endpoint"
+    Write-StatusMessage -Message "[*] Calling Agent ID user_fic token exchange endpoint" -Silent:$Silent
     try {
         $tokens = Invoke-RestMethod -Method POST -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
     } catch {
@@ -2041,13 +2067,13 @@ function Invoke-AgentUserFicExchange {
             } catch {}
         }
 
-        Write-Host "[!] Aborting...."
+        Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
         if ($InitialError) {
-            Write-Host "[!] Error: $($InitialError.error)"
-            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            Write-StatusMessage -Message "[!] Error: $($InitialError.error)" -Silent:$Silent
+            Write-StatusMessage -Message "[!] Error Description: $($InitialError.error_description)" -Silent:$Silent
             $ErrorLong = $InitialError.error_description
         } else {
-            Write-Host "[!] Error: $($_.Exception.Message)"
+            Write-StatusMessage -Message "[!] Error: $($_.Exception.Message)" -Silent:$Silent
             $ErrorLong = $_.Exception.Message
         }
 
@@ -2063,7 +2089,7 @@ function Invoke-AgentUserFicExchange {
     }
 
     if ($Proceed -and $tokens -and $tokens.access_token) {
-        Write-Host "[+] Got an access token"
+        Write-StatusMessage -Message "[+] Got an access token" -Silent:$Silent
         $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
 
         if (-not $DisableJwtParsing) {
@@ -2071,8 +2097,8 @@ function Invoke-AgentUserFicExchange {
                 $JWT = Invoke-ParseJwt -jwt $tokens.access_token
             } catch {
                 $JwtParseError = $_
-                Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                Write-Host "[!] Aborting...."
+                Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
                 return $tokens
             }
 
@@ -2088,9 +2114,9 @@ function Invoke-AgentUserFicExchange {
             } elseif ($JWT.preferred_username) {
                 $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.preferred_username
             }
-            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)" -Silent:$Silent
         } else {
-            Write-Host "[i] Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Expires at: $($tokens.expiration_time)" -Silent:$Silent
         }
 
         if ($TokenOut) {
@@ -2105,7 +2131,7 @@ function Invoke-AgentUserFicExchange {
     }
 
     if ($Proceed) {
-        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
     }
 
     return $null
@@ -2141,7 +2167,8 @@ function Invoke-AgentAutonomousAppFlow {
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $blueprintAssertionToken = Get-BlueprintAgentAssertionToken `
@@ -2161,7 +2188,8 @@ function Invoke-AgentAutonomousAppFlow {
         -BlueprintClientAssertion $BlueprintClientAssertion `
         -FmiPath $FmiPath `
         -UserAgent $UserAgent `
-        -Reporting:$Reporting
+        -Reporting:$Reporting `
+        -Silent:$Silent
 
     $resourceToken = Invoke-ClientCredential `
         -ClientId $AgentIdentityClientId `
@@ -2172,7 +2200,8 @@ function Invoke-AgentAutonomousAppFlow {
         -UserAgent $UserAgent `
         -TokenOut:$TokenOut `
         -DisableJwtParsing:$DisableJwtParsing `
-        -Reporting:$Reporting
+        -Reporting:$Reporting `
+        -Silent:$Silent
 
     return $resourceToken
 }
@@ -2208,7 +2237,8 @@ function Invoke-AgentOnBehalfOfFlow {
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $blueprintAssertionToken = Get-BlueprintAgentAssertionToken `
@@ -2228,7 +2258,8 @@ function Invoke-AgentOnBehalfOfFlow {
         -BlueprintClientAssertion $BlueprintClientAssertion `
         -FmiPath $FmiPath `
         -UserAgent $UserAgent `
-        -Reporting:$Reporting
+        -Reporting:$Reporting `
+        -Silent:$Silent
 
     $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
 
@@ -2243,7 +2274,8 @@ function Invoke-AgentOnBehalfOfFlow {
         -DisableJwtParsing:$DisableJwtParsing `
         -Reporting:$Reporting `
         -ReportOutputFile "AgentOnBehalfOf_report.csv" `
-        -ErrorOutputFile "AgentOnBehalfOf_errors.csv"
+        -ErrorOutputFile "AgentOnBehalfOf_errors.csv" `
+        -Silent:$Silent
 
     return $resourceToken
 }
@@ -2281,7 +2313,8 @@ function Invoke-AgentUserFlow {
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
-        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][switch]$Silent = $false
     )
 
     $blueprintAssertionToken = Get-BlueprintAgentAssertionToken `
@@ -2301,7 +2334,8 @@ function Invoke-AgentUserFlow {
         -BlueprintClientAssertion $BlueprintClientAssertion `
         -FmiPath $FmiPath `
         -UserAgent $UserAgent `
-        -Reporting:$Reporting
+        -Reporting:$Reporting `
+        -Silent:$Silent
 
     if ([string]::IsNullOrWhiteSpace($AgentUserAssertionToken)) {
         $agentUserBootstrapToken = Invoke-ClientCredential `
@@ -2312,7 +2346,8 @@ function Invoke-AgentUserFlow {
             -Scope ".default" `
             -UserAgent $UserAgent `
             -DisableJwtParsing `
-            -Reporting:$Reporting
+            -Reporting:$Reporting `
+            -Silent:$Silent
 
         if (-not $agentUserBootstrapToken -or -not $agentUserBootstrapToken.access_token) {
             throw "Unable to obtain agent-user assertion token (T2)."
@@ -2336,7 +2371,8 @@ function Invoke-AgentUserFlow {
         -DisableJwtParsing:$DisableJwtParsing `
         -Reporting:$Reporting `
         -ReportOutputFile "AgentUser_report.csv" `
-        -ErrorOutputFile "AgentUser_errors.csv"
+        -ErrorOutputFile "AgentUser_errors.csv" `
+        -Silent:$Silent
 
     return $resourceToken
 }
@@ -2611,11 +2647,12 @@ function Get-Token {
         [Parameter(Mandatory=$false)][bool]$DisableJwtParsing,
         [Parameter(Mandatory=$false)][string]$UserAgent = "python-requests/2.32.3",
         [Parameter(Mandatory=$false)][string]$ReportName,
-        [Parameter(Mandatory=$false)][string]$Origin
+        [Parameter(Mandatory=$false)][string]$Origin,
+        [Parameter(Mandatory=$false)][bool]$Silent
     )
 
 
-    write-host "[*] Calling the token endpoint"
+    Write-StatusMessage -Message "[*] Calling the token endpoint" -Silent:$Silent
         
     #Define headers (emulate Azure CLI)
     $Headers = @{
@@ -2644,7 +2681,7 @@ function Get-Token {
         if ($PKCE) {
             $Body.Add("code_verifier", $PKCE)
         } else {
-            Write-Host "[!] PKCE is enabled but no code verifier was provided. Aborting..."
+            Write-StatusMessage -Message "[!] PKCE is enabled but no code verifier was provided. Aborting..." -Silent:$Silent
             return
         }
     }
@@ -2661,27 +2698,27 @@ function Get-Token {
         #Error Handling for initial request
         $TokenRequestError = $_ | ConvertFrom-Json
         if ($TokenRequestError.error -eq "invalid_grant") {
-            Write-Host "[!] The authorization code or PKCE code verifier is invalid or has expired. Aborting..."
+            Write-StatusMessage -Message "[!] The authorization code or PKCE code verifier is invalid or has expired. Aborting..." -Silent:$Silent
         } elseif ($TokenRequestError.error -eq "invalid_request") {
-            Write-Host "[!] Protocol error, such as a missing required parameter. Aborting..."
+            Write-StatusMessage -Message "[!] Protocol error, such as a missing required parameter. Aborting..." -Silent:$Silent
 
         } elseif ($TokenRequestError.error -eq "unauthorized_client") {
-            Write-Host "[!] The authenticated client isn't authorized to use this authorization grant type.. Aborting..."
+            Write-StatusMessage -Message "[!] The authenticated client isn't authorized to use this authorization grant type.. Aborting..." -Silent:$Silent
 
         } elseif ($TokenRequestError.error -eq "invalid_resource") {
-            Write-Host "[!] The target resource is invalid because it doesn't exist, Microsoft Entra ID can't find it, or it's not correctly configured. Aborting..."
+            Write-StatusMessage -Message "[!] The target resource is invalid because it doesn't exist, Microsoft Entra ID can't find it, or it's not correctly configured. Aborting..." -Silent:$Silent
 
         } elseif ($TokenRequestError.error -eq "consent_required") {
-            Write-Host "[!] The request requires user consent.. Aborting..."
+            Write-StatusMessage -Message "[!] The request requires user consent.. Aborting..." -Silent:$Silent
 
         } elseif ($TokenRequestError.error -eq "invalid_scope") {
-            Write-Host "[!] The scope requested by the app is invalid... Aborting..."
+            Write-StatusMessage -Message "[!] The scope requested by the app is invalid... Aborting..." -Silent:$Silent
 
         } else {
-            Write-Host "[!] Unknown error: Aborting...."
+            Write-StatusMessage -Message "[!] Unknown error: Aborting...." -Silent:$Silent
         }
-        Write-Host "[!] Error Details: $($TokenRequestError.error)"
-        Write-Host "[!] Error Description: $($TokenRequestError.error_description)"
+        Write-StatusMessage -Message "[!] Error Details: $($TokenRequestError.error)" -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error Description: $($TokenRequestError.error_description)" -Silent:$Silent
         
         if ($Reporting) {
             $ErrorDetails = [PSCustomObject]@{
@@ -2697,9 +2734,9 @@ function Get-Token {
     #Check if answer contains an access token (refresh token can be omitted)
     if ($tokens.access_token) {
         if ($tokens.refresh_token) {
-            Write-Host "[+] Got an access token and a refresh token"
+            Write-StatusMessage -Message "[+] Got an access token and a refresh token" -Silent:$Silent
         } else {
-            Write-Host "[+] Got an access token (no refresh token requested)"
+            Write-StatusMessage -Message "[+] Got an access token (no refresh token requested)" -Silent:$Silent
         }
 
         $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
@@ -2711,8 +2748,8 @@ function Get-Token {
                 $JWT = Invoke-ParseJwt -jwt $tokens.access_token
             } Catch {
                 $JwtParseError = $_ 
-                Write-Host "[!] JWT Parse error: $($JwtParseError)"
-                Write-Host "[!] Aborting...."
+                Write-StatusMessage -Message "[!] JWT Parse error: $($JwtParseError)" -Silent:$Silent
+                Write-StatusMessage -Message "[!] Aborting...." -Silent:$Silent
 
                 #Create Error Object to use in reporting
                 $ErrorDetails = [PSCustomObject]@{
@@ -2740,9 +2777,9 @@ function Get-Token {
             } else {
                 $xms_cc = $false
             }
-            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)" -Silent:$Silent
         } else {
-            Write-Host "[i] Expires at: $($tokens.expiration_time)"
+            Write-StatusMessage -Message "[i] Expires at: $($tokens.expiration_time)" -Silent:$Silent
         }
         
         $AuthError = $false
@@ -2767,7 +2804,7 @@ function Get-Token {
         Return $tokens
 
     } else {
-        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
 
         #Create Error Object to use in reporting
         $ErrorDetails = [PSCustomObject]@{

@@ -49,18 +49,18 @@ Using the obtained refresh token to get new tokens on another API and using anot
 
 The module includes the following commands:
 
-| Command                   | Description                                                           |Default behavior|
-|---------------------------|-----------------------------------------------------------------------|----|
-| `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          |API: MS Graph / Client: Azure CLI / CAE: Yes|
-| `Invoke-DeviceCodeFlow`   | Authenticate via the device code flow.                                |API: MS Graph / Client: Azure CLI|
-| `Invoke-ClientCredential` | Authenticate using the client credential flow.                        |API: MS Graph|
-| `Invoke-ROPC`             | Authenticate using resource owner password credentials (ROPC).        |API: MS Graph|
-| `Invoke-AgentAutonomousAppFlow` | Agent ID autonomous app flow wrapper.                         |blueprint token -> resource token|
-| `Invoke-AgentOnBehalfOfFlow` | Agent ID on-behalf-of flow wrapper.                              |blueprint token + user assertion -> resource token|
-| `Invoke-AgentUserFlow` | Agent ID user flow wrapper.                                              |blueprint token -> agent-user assertion token -> resource token|
-| `Invoke-Refresh`          | Get a new access token using the refresh token.                       |API: MS Graph / Client: Azure CLI|
-| `Invoke-ParseJwt`         | Decode a JWT and display its body properties.                         |-|
-| `Show-EntraTokenAidHelp`  | Show Help.                                                            |-|
+| Command                         | Description                                                    |Default behavior|
+|---------------------------------|----------------------------------------------------------------|--------------------------------------------|
+| `Invoke-Auth`                   | Perform authentication (auth code flow) and retrieve tokens.   |API: MS Graph / Client: Azure CLI / CAE: Yes|
+| `Invoke-DeviceCodeFlow`         | Authenticate via the device code flow.                         |API: MS Graph / Client: Azure CLI|
+| `Invoke-ClientCredential`       | Authenticate using the client credential flow.                 |API: MS Graph|
+| `Invoke-ROPC`                   | Authenticate using resource owner password credentials (ROPC). |API: MS Graph|
+| `Invoke-AgentAutonomousAppFlow` | Agent ID autonomous app flow wrapper.                          |blueprint token -> resource token|
+| `Invoke-AgentOnBehalfOfFlow`    | Agent ID on-behalf-of flow wrapper.                            |blueprint token + user assertion -> resource token|
+| `Invoke-AgentUserFlow`          | Agent ID user flow wrapper.                                    |blueprint token -> agent-user assertion token -> resource token|
+| `Invoke-Refresh`                | Get a new access token using the refresh token.                |API: MS Graph / Client: Azure CLI|
+| `Invoke-ParseJwt`               | Decode a JWT and display its body properties.                  |-|
+| `Show-EntraTokenAidHelp`        | Show Help.                                                     |-|
 
 
 ### Quick Start
@@ -106,6 +106,7 @@ All parameters are optional.
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
 | **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
+| **Silent**           | Suppresses status messages written with `Write-Host`.                       | `false`                                           |
 | **ManualCode**       | Get auth URL for external login; use final URL with the code to auth        | `false`                                           |
 | **SkipGen**          | Skip auth URL generation (use with `-ManualCode`)                           | `false`                                           |
 | **LoginHint**        | Pre-fill the username on the login page.                                    | `-`                                               |
@@ -158,7 +159,7 @@ Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsP
 Authenticate and use with [AzureHound](https://github.com/BloodHoundAD/AzureHound):
 ```powershell
 $Tokens = Invoke-Auth
-.\azurehound.exe --refresh-token $Tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
+.\azurehound.exe --jwt $tokens.access_token --refresh-token $tokens.refresh_token list --tenant $Tokens.tenant -o output-all.json
 ```
 
 Authenticate and use with [GraphRunner](https://github.com/dafthack/GraphRunner):
@@ -186,6 +187,7 @@ All parameters are optional.
 | **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
 | **DisableBrowserStart**| Disables the automatic start of the browser.                                | `false`                                           |
 | **Reporting**          | If provided, enables detailed token logging to csv.                         | `false`                                           |  
+| **Silent**             | Suppresses status messages written with `Write-Host`.                       | `false`                                           |
 
 
 #### Example
@@ -246,6 +248,7 @@ Authenticate using the client credential flow with one of these methods:
 | **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
 | **FmiPath**            | Optional `fmi_path` request parameter (autonomous agent token scenarios).   | `-`                                               |
 | **Reporting**          | If provided, enables detailed token logging to csv.                         | `false`                                           |  
+| **Silent**             | Suppresses status messages written with `Write-Host`.                       | `false`                                           |  
 
 
 #### Example
@@ -342,6 +345,7 @@ Important: ROPC is a legacy flow and will fail in common modern setups (for exam
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
 | **UserAgent**        | User agent used.                                                            | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36` |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
+| **Silent**           | Suppresses status messages written with `Write-Host`.                       | `false`                                           |
 
 #### Example
 
@@ -370,6 +374,7 @@ Core parameters:
 - Optional target: `Api`, `Scope`
 - Optional pre-obtained `BlueprintToken`
 - Optional blueprint credential parameters: `BlueprintClientSecret`, `BlueprintCertificatePath`, `BlueprintCertificatePemPath`, `BlueprintPrivateKeyPemPath`, `BlueprintCertificateThumbprint`, `BlueprintClientAssertion`
+- Optional output controls: `TokenOut`, `DisableJwtParsing`, `Reporting`, `Silent`
 
 Example:
 ```powershell
@@ -385,6 +390,7 @@ Core parameters:
 - Optional target: `Api`, `Scope`
 - Optional pre-obtained `BlueprintToken`
 - Optional blueprint credential parameters (same pattern as above, including `BlueprintCertificatePemPath` + `BlueprintPrivateKeyPemPath` for PEM credentials)
+- Optional output controls: `TokenOut`, `DisableJwtParsing`, `Reporting`, `Silent`
 
 Example:
 ```powershell
@@ -400,8 +406,9 @@ Core parameters:
 - Optional user identifier override: `AgentUserObjectId`
 - Optional target: `Api`, `Scope`
 - Optional pre-obtained `BlueprintToken`
-- Optional pre-obtained `AgentUserAssertionToken` (`T2`)
+- Optional pre-obtained `AgentUserAssertionToken`
 - Optional blueprint credential parameters (same pattern as above, including `BlueprintCertificatePemPath` + `BlueprintPrivateKeyPemPath` for PEM credentials)
+- Optional output controls: `TokenOut`, `DisableJwtParsing`, `Reporting`, `Silent`
 
 Example:
 ```powershell
@@ -424,7 +431,7 @@ Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a re
 | **Scope**            | Scopes (space separated) to be requested.                                   | `.default offline_access`                         |
 | **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **UserAgent**        | User agent used.                                                            | `python-requests/2.32.3`                          |  
-| **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
+| **Tenant**           | Specific tenant id.                                                         | `common`                                          |
 | **TokenOut**         | If provided, outputs the raw token to console.                              | `false`                                           |
 | **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
@@ -432,6 +439,7 @@ Supports `brk_client_id`, `redirect_uri`, and `origin`. In combination with a re
 | **RedirectUri**      | Define redirect_uri.                                                        | `-`                                               |
 | **Origin**           | Define Origin Header.                                                       | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |  
+| **Silent**           | Suppresses status messages written with `Write-Host`.                       | `false`                                           |  
 
 #### Example
 Reuse the refresh token to get new tokens:
