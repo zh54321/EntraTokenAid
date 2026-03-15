@@ -1092,6 +1092,153 @@ function Invoke-DeviceCodeFlow {
     }
 }
 
+function ConvertTo-Base64Url {
+    param(
+        [Parameter(Mandatory=$true)][byte[]]$Bytes
+    )
+
+    return ([Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_'))
+}
+
+function Resolve-FilePathFromPsPath {
+    <#
+        .SYNOPSIS
+        Resolves a PowerShell path to a filesystem path using the current PowerShell location.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$Path
+    )
+
+    try {
+        return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    } catch {
+        throw "Unable to resolve path '$Path'. Ensure it points to a filesystem location. Error: $($_.Exception.Message)"
+    }
+}
+
+function New-ClientAssertionJwt {
+    <#
+        .SYNOPSIS
+        Builds and signs a JWT client assertion using an X509 certificate.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$ClientId,
+        [Parameter(Mandatory=$true)][string]$TokenUrl,
+        [Parameter(Mandatory=$true)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [Parameter(Mandatory=$false)][int]$LifetimeSeconds = 600
+    )
+
+    if (-not $Certificate.HasPrivateKey) {
+        throw "The certificate does not include a private key, so a client assertion cannot be signed."
+    }
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $thumbprintSha256 = ConvertTo-Base64Url -Bytes ($sha256.ComputeHash($Certificate.RawData))
+    } finally {
+        if ($sha256) { $sha256.Dispose() }
+    }
+
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $jwtHeader = @{
+        alg = "PS256"
+        typ = "JWT"
+        "x5t#S256" = $thumbprintSha256
+    }
+    $jwtPayload = @{
+        aud = $TokenUrl
+        iss = $ClientId
+        sub = $ClientId
+        jti = [guid]::NewGuid().Guid
+        nbf = $now
+        iat = $now
+        exp = ($now + $LifetimeSeconds)
+    }
+
+    $headerJson = $jwtHeader | ConvertTo-Json -Compress
+    $payloadJson = $jwtPayload | ConvertTo-Json -Compress
+    $headerEncoded = ConvertTo-Base64Url -Bytes ([System.Text.Encoding]::UTF8.GetBytes($headerJson))
+    $payloadEncoded = ConvertTo-Base64Url -Bytes ([System.Text.Encoding]::UTF8.GetBytes($payloadJson))
+    $signingInput = "$headerEncoded.$payloadEncoded"
+    $signingBytes = [System.Text.Encoding]::UTF8.GetBytes($signingInput)
+
+    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
+    if (-not $rsa) {
+        throw "Unable to access an RSA private key from the certificate."
+    }
+
+    try {
+        $signatureBytes = $rsa.SignData(
+            $signingBytes,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pss
+        )
+    } finally {
+        if ($rsa -is [System.IDisposable]) {
+            $rsa.Dispose()
+        }
+    }
+
+    $signatureEncoded = ConvertTo-Base64Url -Bytes $signatureBytes
+    return "$signingInput.$signatureEncoded"
+}
+
+function New-CertificateFromPemFiles {
+    <#
+        .SYNOPSIS
+        Loads an X509 certificate with private key from PEM certificate and key files.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$CertificatePemPath,
+        [Parameter(Mandatory=$true)][string]$PrivateKeyPemPath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$PrivateKeyPemPassword
+    )
+
+    $resolvedCertificatePemPath = Resolve-FilePathFromPsPath -Path $CertificatePemPath
+    $resolvedPrivateKeyPemPath = Resolve-FilePathFromPsPath -Path $PrivateKeyPemPath
+
+    if (-not (Test-Path -LiteralPath $resolvedCertificatePemPath)) {
+        throw "Certificate PEM file not found: $CertificatePemPath"
+    }
+
+    if (-not (Test-Path -LiteralPath $resolvedPrivateKeyPemPath)) {
+        throw "Private key PEM file not found: $PrivateKeyPemPath"
+    }
+
+    $x509Type = [System.Security.Cryptography.X509Certificates.X509Certificate2]
+    $hasCreateFromPemFile = $null -ne ($x509Type.GetMethods() | Where-Object { $_.Name -eq 'CreateFromPemFile' -and $_.GetParameters().Count -eq 2 } | Select-Object -First 1)
+    $hasCreateFromEncryptedPemFile = $null -ne ($x509Type.GetMethods() | Where-Object { $_.Name -eq 'CreateFromEncryptedPemFile' -and $_.GetParameters().Count -eq 3 } | Select-Object -First 1)
+
+    if (-not $hasCreateFromPemFile) {
+        throw "Native PEM certificate support requires PowerShell 7+ (.NET 5+). On Windows PowerShell 5.1, convert PEM+key to PFX and use -CertificatePath."
+    }
+
+    if ($PrivateKeyPemPassword -and -not $hasCreateFromEncryptedPemFile) {
+        throw "Encrypted PEM private keys require native CreateFromEncryptedPemFile support. On Windows PowerShell 5.1, convert PEM+key to PFX and use -CertificatePath."
+    }
+
+    if ($PrivateKeyPemPassword) {
+        $privateKeyPasswordBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($PrivateKeyPemPassword)
+        try {
+            $privateKeyPasswordPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($privateKeyPasswordBstr)
+            return [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromEncryptedPemFile(
+                $resolvedCertificatePemPath,
+                $privateKeyPasswordPlain,
+                $resolvedPrivateKeyPemPath
+            )
+        } finally {
+            if ($privateKeyPasswordBstr -ne [IntPtr]::Zero) {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($privateKeyPasswordBstr)
+            }
+        }
+    }
+
+    return [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile(
+        $resolvedCertificatePemPath,
+        $resolvedPrivateKeyPemPath
+    )
+}
+
 function Invoke-ClientCredential {
     <#
         .SYNOPSIS
@@ -1099,13 +1246,42 @@ function Invoke-ClientCredential {
 
         .DESCRIPTION
         The `Invoke-ClientCredential` function implements the OAuth 2.0 Client Credentials Flow. 
-        It retrieves an access token for the specified API and supports additional features like JWT parsing, custom reporting, and secure handling of client secrets.
+        It retrieves an access token for the specified API and supports client secret authentication, certificate-based client assertions, and manually provided JWT client assertions.
 
         .PARAMETER ClientId
         Specifies the client ID of the application being authenticated. This parameter is mandatory.
 
         .PARAMETER ClientSecret
         Specifies the client secret of the application being authenticated. If not provided, the function prompts for secure input during execution.
+
+        .PARAMETER CertificatePath
+        Path to a certificate file (typically PFX/P12) containing a private key used to sign a client assertion JWT.
+
+        .PARAMETER CertificatePassword
+        Optional password for the certificate file provided via `-CertificatePath`.
+
+        .PARAMETER CertificatePemPath
+        Path to a PEM certificate file (for example `cert.pem`) used together with `-PrivateKeyPemPath`.
+
+        .PARAMETER PrivateKeyPemPath
+        Path to a PEM private key file (for example `key.pem`) used together with `-CertificatePemPath`.
+
+        .PARAMETER PrivateKeyPemPassword
+        Optional password for encrypted PEM private key files.
+
+        .PARAMETER CertificateThumbprint
+        Thumbprint of a certificate in the Windows certificate store. The certificate must contain an accessible private key.
+
+        .PARAMETER CertificateStoreLocation
+        Certificate store location used with `-CertificateThumbprint`.
+        Default: `CurrentUser`
+
+        .PARAMETER CertificateStoreName
+        Certificate store name used with `-CertificateThumbprint`.
+        Default: `My`
+
+        .PARAMETER ClientAssertion
+        Manually provided JWT client assertion. When used, no secret or certificate is required.
         
         .PARAMETER Api
         Specifies the target API for the authentication request.
@@ -1128,6 +1304,10 @@ function Invoke-ClientCredential {
         .PARAMETER TenantId
         Specifies the tenant ID for authentication. This parameter is mandatory.
 
+        .PARAMETER FmiPath
+        Optional `fmi_path` value added to the token request body.
+        This is used for Entra Agent ID autonomous agent blueprint token requests.
+
         .PARAMETER Reporting
         Enables logging (CSV) the details of the authentication operation for later analysis. 
 
@@ -1142,6 +1322,31 @@ function Invoke-ClientCredential {
         Authenticates with the specified client credentials and retrieves a token for the Azure Management API.
 
         .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificatePath "C:\temp\appcert.pfx"
+
+        Uses the certificate from a PFX file to generate a client assertion and authenticate.
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificatePemPath "C:\temp\cert.pem" -PrivateKeyPemPath "C:\temp\key.pem"
+
+        Uses PEM certificate and key files to generate a client assertion and authenticate.
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificateThumbprint "0123456789ABCDEF0123456789ABCDEF01234567" -CertificateStoreLocation CurrentUser
+
+        Uses a certificate from the Windows certificate store to generate a client assertion and authenticate.
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -ClientAssertion $jwtAssertion
+
+        Uses a manually provided client assertion JWT.
+
+        .EXAMPLE
+        Invoke-ClientCredential -ClientId "<agent-blueprint-client-id>" -TenantId "<tenant-id>" -Scope "api://AzureADTokenExchange/.default" -ClientSecret "<secret>" -FmiPath "<agent-identity-client-id>"
+
+        Requests an autonomous agent blueprint token including `fmi_path`.
+
+        .EXAMPLE
         Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -Reporting
 
         Prompts for the client secret securely, authenticates, and logs detailed results to a CSV file.
@@ -1150,59 +1355,154 @@ function Invoke-ClientCredential {
         Ensure the client application has the appropriate permissions for the specified API and scope in Azure AD.
         
     #>
+    [CmdletBinding(DefaultParameterSetName='ClientSecret')]
     param (
         [Parameter(Mandatory=$true)][string]$ClientId,
-        [Parameter(Mandatory=$false)][string]$ClientSecret,
+        [Parameter(Mandatory=$false, ParameterSetName='ClientSecret')][string]$ClientSecret,
+        [Parameter(Mandatory=$true, ParameterSetName='CertificateFile')][string]$CertificatePath,
+        [Parameter(Mandatory=$false, ParameterSetName='CertificateFile')][System.Security.SecureString]$CertificatePassword,
+        [Parameter(Mandatory=$true, ParameterSetName='CertificatePem')][string]$CertificatePemPath,
+        [Parameter(Mandatory=$true, ParameterSetName='CertificatePem')][string]$PrivateKeyPemPath,
+        [Parameter(Mandatory=$false, ParameterSetName='CertificatePem')][System.Security.SecureString]$PrivateKeyPemPassword,
+        [Parameter(Mandatory=$true, ParameterSetName='CertificateStore')][string]$CertificateThumbprint,
+        [Parameter(Mandatory=$false, ParameterSetName='CertificateStore')][ValidateSet("CurrentUser","LocalMachine")][string]$CertificateStoreLocation = "CurrentUser",
+        [Parameter(Mandatory=$false, ParameterSetName='CertificateStore')][string]$CertificateStoreName = "My",
+        [Parameter(Mandatory=$true, ParameterSetName='ClientAssertion')][string]$ClientAssertion,
         [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
         [Parameter(Mandatory=$false)][string]$Scope = ".default",
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$false)][string]$FmiPath,
         [Parameter(Mandatory=$false)][switch]$Reporting = $false
     )
 
     $Proceed = $true
     $Headers=@{}
     $Headers["User-Agent"] = $UserAgent
-    
-    #Prompt for client credential if not defined
-    if (-not $ClientSecret) {
-        $ClientSecretSecure = Read-Host -Prompt "Enter the client secret" -AsSecureString
-        if ($ClientSecretSecure -is [System.Security.SecureString]) {
-            Write-Host "Variable is a SecureString."
-        } else {
-            Write-Host "Variable is NOT a SecureString. Check your input."
-        }
-        $ClientSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-            [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ClientSecretSecure)
-        )
-    }
 
     # Construct scope string for v2 endpoints
     $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
-        
-     # Get Access Token 
-    $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token" 
-    $body = @{
-         'scope'     = $ApiScopeUrl
-         'client_id'      = $ClientId 
-         'client_secret' = $ClientSecret
-         'grant_type' = 'client_credentials' 
+    $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token"
+
+    $authMethod = $PSCmdlet.ParameterSetName
+    if ($authMethod -eq 'ClientSecret') {
+        # Prompt for client secret if not provided
+        if (-not $ClientSecret) {
+            $ClientSecretSecure = Read-Host -Prompt "Enter the client secret" -AsSecureString
+            $ClientSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ClientSecretSecure)
+            )
+        }
+    } elseif ($authMethod -eq 'CertificateFile') {
+        try {
+            $resolvedCertificatePath = Resolve-FilePathFromPsPath -Path $CertificatePath
+
+            if (-not (Test-Path -LiteralPath $resolvedCertificatePath)) {
+                throw "Certificate file not found: $CertificatePath"
+            }
+
+            if ($CertificatePassword) {
+                $Certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+                    $resolvedCertificatePath,
+                    $CertificatePassword,
+                    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
+                )
+            } else {
+                $Certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($resolvedCertificatePath)
+            }
+        } catch {
+            throw "Failed to load certificate file '$CertificatePath'. Ensure it is a valid PFX/P12 and the password is correct if required. Error: $($_.Exception.Message)"
+        }
+
+        $ClientAssertion = New-ClientAssertionJwt -ClientId $ClientId -TokenUrl $tokenUrl -Certificate $Certificate
+        $authMethod = "CertificateFile"
+    } elseif ($authMethod -eq 'CertificatePem') {
+        try {
+            $Certificate = New-CertificateFromPemFiles -CertificatePemPath $CertificatePemPath -PrivateKeyPemPath $PrivateKeyPemPath -PrivateKeyPemPassword $PrivateKeyPemPassword
+        } catch {
+            throw "Failed to load PEM certificate/key files. Error: $($_.Exception.Message)"
+        }
+
+        if (-not $Certificate.HasPrivateKey) {
+            throw "PEM certificate/key pair was loaded, but no private key is available for signing."
+        }
+
+        $ClientAssertion = New-ClientAssertionJwt -ClientId $ClientId -TokenUrl $tokenUrl -Certificate $Certificate
+        $authMethod = "CertificatePem"
+    } elseif ($authMethod -eq 'CertificateStore') {
+        $normalizedThumbprint = ($CertificateThumbprint -replace '\s+', '').ToUpperInvariant()
+        $storePath = "Cert:\$CertificateStoreLocation\$CertificateStoreName"
+        $Certificate = Get-ChildItem -Path $storePath -ErrorAction Stop |
+            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+            Select-Object -First 1
+
+        if (-not $Certificate) {
+            throw "Certificate with thumbprint '$CertificateThumbprint' not found in '$storePath'."
+        }
+
+        if (-not $Certificate.HasPrivateKey) {
+            throw "Certificate '$($Certificate.Subject)' from '$storePath' has no private key and cannot be used for client assertion."
+        }
+
+        $ClientAssertion = New-ClientAssertionJwt -ClientId $ClientId -TokenUrl $tokenUrl -Certificate $Certificate
+        $authMethod = "CertificateStore"
+    } elseif ($authMethod -eq 'ClientAssertion') {
+        if (-not $ClientAssertion) {
+            throw "ClientAssertion parameter set selected, but no assertion was provided."
+        }
+        $authMethod = "ClientAssertion"
     }
 
-    write-host "[*] Starting Client Credential flow: API $Api / Client id: $ClientID"
+    $body = @{
+        'scope'      = $ApiScopeUrl
+        'client_id'  = $ClientId
+        'grant_type' = 'client_credentials'
+    }
+
+    if ($PSCmdlet.ParameterSetName -eq 'ClientSecret') {
+        $body['client_secret'] = $ClientSecret
+    } else {
+        $body['client_assertion_type'] = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+        $body['client_assertion'] = $ClientAssertion
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($FmiPath)) {
+        $body['fmi_path'] = $FmiPath
+    }
+
+    write-host "[*] Starting Client Credential flow: API $Api / Client id: $ClientID / Auth: $authMethod"
     Try {
         $TokensClientCredential = Invoke-RestMethod -Method Post -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
     } Catch {
-        $InitialError = $_ | ConvertFrom-Json  
+        $InitialError = $null
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $InitialError = $_.ErrorDetails.Message | ConvertFrom-Json
+            } catch {}
+        }
+
+        if (-not $InitialError -and $_.Exception.Message -and $_.Exception.Message.TrimStart().StartsWith("{")) {
+            try {
+                $InitialError = $_.Exception.Message | ConvertFrom-Json
+            } catch {}
+        }
+
         Write-Host "[!] Aborting...."
-        Write-Host "[!] Error: $($InitialError.error)"
-        Write-Host "[!] Error Description: $($InitialError.error_description)"
+        if ($InitialError) {
+            Write-Host "[!] Error: $($InitialError.error)"
+            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            $ErrorLong = $InitialError.error_description
+        } else {
+            Write-Host "[!] Error: $($_.Exception.Message)"
+            $ErrorLong = $_.Exception.Message
+        }
+
         if ($Reporting) {
             $ErrorDetails = [PSCustomObject]@{
                 ClientID    = $ClientID
-                ErrorLong   = $PollingError.error_description
+                ErrorLong   = $ErrorLong
             }
             Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "ClientCredential_errors.csv"
         }
@@ -1253,6 +1553,792 @@ function Invoke-ClientCredential {
     }
 
     Return $TokensClientCredential 
+}
+
+function Invoke-ROPC {
+    <#
+        .SYNOPSIS
+        Performs OAuth 2.0 authentication using the Resource Owner Password Credentials (ROPC) flow.
+
+        .DESCRIPTION
+        The `Invoke-ROPC` function implements the OAuth 2.0 ROPC flow against Microsoft Entra ID v2 endpoints.
+        It exchanges a username and password for tokens and optionally supports confidential clients via `-ClientSecret`.
+
+        .PARAMETER ClientID
+        Specifies the client ID of the application being authenticated. This parameter is mandatory.
+
+        .PARAMETER Username
+        User principal name (UPN) or username used for authentication. This parameter is mandatory.
+
+        .PARAMETER Password
+        Password for the provided username. If not provided, the function prompts for secure input.
+
+        .PARAMETER ClientSecret
+        Optional client secret for confidential clients.
+
+        .PARAMETER Api
+        Specifies the target API for the authentication request.
+        Default: `graph.microsoft.com`
+
+        .PARAMETER Scope
+        Specifies the API permissions (scopes) to request during authentication. Multiple scopes should be space-separated.
+        Default: `.default offline_access`
+
+        .PARAMETER Tenant
+        Specifies the tenant to authenticate against.
+        Default: `organizations`
+
+        .PARAMETER DisableCAE
+        Disables Continuous Access Evaluation (CAE) claims in the token request.
+
+        .PARAMETER DisableJwtParsing
+        Disables parsing of the JWT access token.
+
+        .PARAMETER TokenOut
+        Outputs token details to the console upon successful authentication.
+
+        .PARAMETER UserAgent
+        Specifies the user agent string for HTTP requests.
+        Default: `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36`
+
+        .PARAMETER Reporting
+        Enables CSV reporting output.
+
+        .EXAMPLE
+        Invoke-ROPC -ClientID "<client-id>" -Tenant "<tenant-id>" -Username "user@contoso.com"
+
+        Prompts securely for the password and performs ROPC for Microsoft Graph.
+
+        .EXAMPLE
+        Invoke-ROPC -ClientID "<client-id>" -Tenant "<tenant-id>" -Username "user@contoso.com" -Password $pw -Api "graph.microsoft.com" -Scope "User.Read offline_access"
+
+        Performs ROPC using a provided password value.
+
+        .EXAMPLE
+        Invoke-ROPC -ClientID "<client-id>" -ClientSecret "<secret>" -Tenant "<tenant-id>" -Username "user@contoso.com" -Scope "User.Read offline_access"
+
+        Performs ROPC using a confidential client.
+    #>
+    param (
+        [Parameter(Mandatory=$true)][string]$ClientID,
+        [Parameter(Mandatory=$true)][string]$Username,
+        [Parameter(Mandatory=$false)][string]$Password,
+        [Parameter(Mandatory=$false)][string]$ClientSecret,
+        [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Scope = ".default offline_access",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][switch]$DisableCAE = $false,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+    )
+
+    $Proceed = $true
+    $Headers = @{}
+    $Headers["User-Agent"] = $UserAgent
+
+    # Construct scope string for v2 endpoints
+    $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
+    $tokenUrl = "https://login.microsoftonline.com/$Tenant/oauth2/v2.0/token"
+
+    if ([string]::IsNullOrWhiteSpace($Password)) {
+        $PasswordSecure = Read-Host -Prompt "Enter the password for $Username" -AsSecureString
+        $passwordBstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($PasswordSecure)
+        try {
+            $Password = [Runtime.InteropServices.Marshal]::PtrToStringAuto($passwordBstr)
+        } finally {
+            if ($passwordBstr -ne [IntPtr]::Zero) {
+                [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passwordBstr)
+            }
+        }
+    }
+
+    $body = @{
+        grant_type = "password"
+        client_id = $ClientID
+        scope = $ApiScopeUrl
+        username = $Username
+        password = $Password
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ClientSecret)) {
+        $body["client_secret"] = $ClientSecret
+    }
+
+    if (-not $DisableCAE) {
+        $body["claims"] = '{"access_token": {"xms_cc": {"values": ["CP1"]}}}'
+    }
+
+    Write-Host "[*] Starting ROPC flow: API $Api / Client id: $ClientID / User: $Username"
+    try {
+        $TokensRopc = Invoke-RestMethod -Method POST -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
+    } catch {
+        $InitialError = $null
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $InitialError = $_.ErrorDetails.Message | ConvertFrom-Json
+            } catch {}
+        }
+
+        if (-not $InitialError -and $_.Exception.Message -and $_.Exception.Message.TrimStart().StartsWith("{")) {
+            try {
+                $InitialError = $_.Exception.Message | ConvertFrom-Json
+            } catch {}
+        }
+
+        Write-Host "[!] Aborting...."
+        if ($InitialError) {
+            Write-Host "[!] Error: $($InitialError.error)"
+            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            $ErrorLong = $InitialError.error_description
+        } else {
+            Write-Host "[!] Error: $($_.Exception.Message)"
+            $ErrorLong = $_.Exception.Message
+        }
+
+        if ($Reporting) {
+            $ErrorDetails = [PSCustomObject]@{
+                ClientID  = $ClientID
+                Username  = $Username
+                ErrorLong = $ErrorLong
+            }
+            Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "ROPC_errors.csv"
+        }
+        $Proceed = $false
+    }
+
+    if ($Proceed -and $TokensRopc.access_token) {
+        if ($TokensRopc.refresh_token) {
+            Write-Host "[+] Got an access token and a refresh token"
+        } else {
+            Write-Host "[+] Got an access token (no refresh token requested)"
+        }
+        $TokensRopc | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($TokensRopc.expires_in)
+
+        if (-not $DisableJwtParsing) {
+            try {
+                $JWT = Invoke-ParseJwt -jwt $TokensRopc.access_token
+            } catch {
+                $JwtParseError = $_
+                Write-Host "[!] JWT Parse error: $($JwtParseError)"
+                Write-Host "[!] Aborting...."
+                return $TokensRopc
+            }
+
+            if ($JWT.scp) { $TokensRopc | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp }
+            if ($JWT.tid) { $TokensRopc | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid }
+            if ($JWT.upn) {
+                $TokensRopc | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
+            } elseif ($JWT.preferred_username) {
+                $TokensRopc | Add-Member -NotePropertyName user -NotePropertyValue $JWT.preferred_username
+            }
+            if ($JWT.app_displayname) { $TokensRopc | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname }
+            if ($JWT.appid) { $TokensRopc | Add-Member -NotePropertyName client_app_id -NotePropertyValue $JWT.appid }
+            if ($JWT.amr) { $TokensRopc | Add-Member -NotePropertyName auth_methods -NotePropertyValue $JWT.amr }
+            if ($JWT.ipaddr) { $TokensRopc | Add-Member -NotePropertyName ip -NotePropertyValue $JWT.ipaddr }
+            if ($JWT.aud) {
+                $TokensRopc | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
+                $TokensRopc | Add-Member -NotePropertyName api -NotePropertyValue ($JWT.aud -replace '^https?://', '' -replace '/$', '')
+            }
+            if ($null -ne $JWT.xms_cc) {
+                $TokensRopc | Add-Member -NotePropertyName xms_cc -NotePropertyValue $JWT.xms_cc
+            }
+            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($TokensRopc.expiration_time)"
+        } else {
+            Write-Host "[i] Expires at: $($TokensRopc.expiration_time)"
+        }
+
+        if ($TokenOut) {
+            invoke-PrintTokenInfo -jwt $TokensRopc -NotParsed $DisableJwtParsing
+        }
+
+        if ($Reporting) {
+            Invoke-Reporting -jwt $TokensRopc -OutputFile "ROPC_report.csv"
+        }
+
+        return $TokensRopc
+    } elseif ($Proceed) {
+        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+    }
+}
+
+function Get-BlueprintAgentAssertionToken {
+    <#
+        .SYNOPSIS
+        Internal helper to obtain the blueprint assertion token (T1) for Agent ID flows.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$true)][string]$BlueprintClientId,
+        [Parameter(Mandatory=$true)][string]$AgentIdentityClientId,
+        [Parameter(Mandatory=$false)][string]$BlueprintToken,
+        [Parameter(Mandatory=$false)][string]$BlueprintClientSecret,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintCertificatePassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePemPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintPrivateKeyPemPath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintPrivateKeyPemPassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateThumbprint,
+        [Parameter(Mandatory=$false)][ValidateSet("CurrentUser","LocalMachine")][string]$BlueprintCertificateStoreLocation = "CurrentUser",
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateStoreName = "My",
+        [Parameter(Mandatory=$false)][string]$BlueprintClientAssertion,
+        [Parameter(Mandatory=$false)][string]$FmiPath,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($BlueprintToken)) {
+        return $BlueprintToken
+    }
+
+    $hasSecret = -not [string]::IsNullOrWhiteSpace($BlueprintClientSecret)
+    $hasCertificateFile = (-not [string]::IsNullOrWhiteSpace($BlueprintCertificatePath)) -or ($null -ne $BlueprintCertificatePassword)
+    $hasCertificatePem = (-not [string]::IsNullOrWhiteSpace($BlueprintCertificatePemPath)) -or (-not [string]::IsNullOrWhiteSpace($BlueprintPrivateKeyPemPath)) -or ($null -ne $BlueprintPrivateKeyPemPassword)
+    $hasCertificateStore = -not [string]::IsNullOrWhiteSpace($BlueprintCertificateThumbprint)
+    $hasClientAssertion = -not [string]::IsNullOrWhiteSpace($BlueprintClientAssertion)
+
+    if ($hasCertificateFile -and [string]::IsNullOrWhiteSpace($BlueprintCertificatePath)) {
+        throw "BlueprintCertificatePassword was provided, but BlueprintCertificatePath is missing."
+    }
+
+    if ($hasCertificatePem) {
+        if ([string]::IsNullOrWhiteSpace($BlueprintCertificatePemPath) -or [string]::IsNullOrWhiteSpace($BlueprintPrivateKeyPemPath)) {
+            throw "BlueprintCertificatePemPath and BlueprintPrivateKeyPemPath must both be provided when using PEM credentials."
+        }
+    }
+
+    $selectedCredentialMethods = @($hasSecret, $hasCertificateFile, $hasCertificatePem, $hasCertificateStore, $hasClientAssertion) | Where-Object { $_ }
+    if ($selectedCredentialMethods.Count -gt 1) {
+        throw "Multiple blueprint credential methods provided. Choose only one of: secret, certificate file, PEM, certificate store, or client assertion."
+    }
+
+    $effectiveFmiPath = if ([string]::IsNullOrWhiteSpace($FmiPath)) { $AgentIdentityClientId } else { $FmiPath }
+    $blueprintSplat = @{
+        ClientId = $BlueprintClientId
+        TenantId = $TenantId
+        Api = "api://AzureADTokenExchange"
+        Scope = ".default"
+        FmiPath = $effectiveFmiPath
+        UserAgent = $UserAgent
+        DisableJwtParsing = $true
+    }
+
+    if ($Reporting) {
+        $blueprintSplat["Reporting"] = $true
+    }
+
+    if ($hasSecret) {
+        $blueprintSplat["ClientSecret"] = $BlueprintClientSecret
+    } elseif ($hasCertificateFile) {
+        $blueprintSplat["CertificatePath"] = $BlueprintCertificatePath
+        if ($null -ne $BlueprintCertificatePassword) {
+            $blueprintSplat["CertificatePassword"] = $BlueprintCertificatePassword
+        }
+    } elseif ($hasCertificatePem) {
+        $blueprintSplat["CertificatePemPath"] = $BlueprintCertificatePemPath
+        $blueprintSplat["PrivateKeyPemPath"] = $BlueprintPrivateKeyPemPath
+        if ($null -ne $BlueprintPrivateKeyPemPassword) {
+            $blueprintSplat["PrivateKeyPemPassword"] = $BlueprintPrivateKeyPemPassword
+        }
+    } elseif ($hasCertificateStore) {
+        $blueprintSplat["CertificateThumbprint"] = $BlueprintCertificateThumbprint
+        $blueprintSplat["CertificateStoreLocation"] = $BlueprintCertificateStoreLocation
+        $blueprintSplat["CertificateStoreName"] = $BlueprintCertificateStoreName
+    } elseif ($hasClientAssertion) {
+        $blueprintSplat["ClientAssertion"] = $BlueprintClientAssertion
+    }
+
+    $blueprintTokenResponse = Invoke-ClientCredential @blueprintSplat
+    if (-not $blueprintTokenResponse -or -not $blueprintTokenResponse.access_token) {
+        throw "Unable to obtain blueprint assertion token (T1)."
+    }
+
+    return $blueprintTokenResponse.access_token
+}
+
+function Invoke-AgentJwtBearerExchange {
+    <#
+        .SYNOPSIS
+        Internal helper for Agent ID JWT bearer OBO token exchange calls.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$true)][string]$ClientId,
+        [Parameter(Mandatory=$true)][string]$Scope,
+        [Parameter(Mandatory=$true)][string]$ClientAssertion,
+        [Parameter(Mandatory=$true)][string]$Assertion,
+        [Parameter(Mandatory=$false)][string]$Username,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][string]$ReportOutputFile = "AgentExchange_report.csv",
+        [Parameter(Mandatory=$false)][string]$ErrorOutputFile = "AgentExchange_errors.csv"
+    )
+
+    $Proceed = $true
+    $Headers = @{}
+    $Headers["User-Agent"] = $UserAgent
+    $tokenUrl = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+    $body = @{
+        client_id = $ClientId
+        scope = $Scope
+        grant_type = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        requested_token_use = "on_behalf_of"
+        client_assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+        client_assertion = $ClientAssertion
+        assertion = $Assertion
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Username)) {
+        $body["username"] = $Username
+    }
+
+    Write-Host "[*] Calling Agent ID token exchange endpoint"
+    try {
+        $tokens = Invoke-RestMethod -Method POST -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
+    } catch {
+        $InitialError = $null
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $InitialError = $_.ErrorDetails.Message | ConvertFrom-Json
+            } catch {}
+        }
+        if (-not $InitialError -and $_.Exception.Message -and $_.Exception.Message.TrimStart().StartsWith("{")) {
+            try {
+                $InitialError = $_.Exception.Message | ConvertFrom-Json
+            } catch {}
+        }
+
+        Write-Host "[!] Aborting...."
+        if ($InitialError) {
+            Write-Host "[!] Error: $($InitialError.error)"
+            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            $ErrorLong = $InitialError.error_description
+        } else {
+            Write-Host "[!] Error: $($_.Exception.Message)"
+            $ErrorLong = $_.Exception.Message
+        }
+
+        if ($Reporting) {
+            $ErrorDetails = [PSCustomObject]@{
+                ClientID  = $ClientID
+                ErrorLong = $ErrorLong
+            }
+            Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile $ErrorOutputFile
+        }
+
+        $Proceed = $false
+    }
+
+    if ($Proceed -and $tokens -and $tokens.access_token) {
+        Write-Host "[+] Got an access token"
+        $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+
+        if (-not $DisableJwtParsing) {
+            try {
+                $JWT = Invoke-ParseJwt -jwt $tokens.access_token
+            } catch {
+                $JwtParseError = $_
+                Write-Host "[!] JWT Parse error: $($JwtParseError)"
+                Write-Host "[!] Aborting...."
+                return $tokens
+            }
+
+            if ($JWT.appid) { $tokens | Add-Member -NotePropertyName client_app_id -NotePropertyValue $JWT.appid }
+            if ($JWT.app_displayname) { $tokens | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname }
+            if ($JWT.oid) { $tokens | Add-Member -NotePropertyName sp_object_id -NotePropertyValue $JWT.oid }
+            if ($JWT.roles) { $tokens | Add-Member -NotePropertyName roles -NotePropertyValue $JWT.roles }
+            if ($JWT.scp) { $tokens | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp }
+            if ($JWT.tid) { $tokens | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid }
+            if ($JWT.aud) { $tokens | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud }
+            if ($JWT.upn) {
+                $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
+            } elseif ($JWT.preferred_username) {
+                $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.preferred_username
+            }
+            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+        } else {
+            Write-Host "[i] Expires at: $($tokens.expiration_time)"
+        }
+
+        if ($TokenOut) {
+            invoke-PrintTokenInfo -jwt $tokens -NotParsed $DisableJwtParsing
+        }
+
+        if ($Reporting) {
+            Invoke-Reporting -jwt $tokens -OutputFile $ReportOutputFile
+        }
+
+        return $tokens
+    }
+
+    if ($Proceed) {
+        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+    }
+
+    return $null
+}
+
+function Invoke-AgentUserFicExchange {
+    <#
+        .SYNOPSIS
+        Internal helper for Agent ID user_fic token exchange calls.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$true)][string]$ClientId,
+        [Parameter(Mandatory=$true)][string]$Scope,
+        [Parameter(Mandatory=$true)][string]$ClientAssertion,
+        [Parameter(Mandatory=$true)][string]$UserFederatedIdentityCredential,
+        [Parameter(Mandatory=$false)][string]$Username,
+        [Parameter(Mandatory=$false)][string]$UserId,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false,
+        [Parameter(Mandatory=$false)][string]$ReportOutputFile = "AgentUser_report.csv",
+        [Parameter(Mandatory=$false)][string]$ErrorOutputFile = "AgentUser_errors.csv"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Username) -and [string]::IsNullOrWhiteSpace($UserId)) {
+        throw "Either Username or UserId must be provided for user_fic token exchange."
+    }
+
+    $Proceed = $true
+    $Headers = @{}
+    $Headers["User-Agent"] = $UserAgent
+    $tokenUrl = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+    $body = @{
+        client_id = $ClientId
+        scope = $Scope
+        grant_type = "user_fic"
+        client_assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+        client_assertion = $ClientAssertion
+        user_federated_identity_credential = $UserFederatedIdentityCredential
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($UserId)) {
+        $body["user_id"] = $UserId
+    } elseif (-not [string]::IsNullOrWhiteSpace($Username)) {
+        $body["username"] = $Username
+    }
+
+    Write-Host "[*] Calling Agent ID user_fic token exchange endpoint"
+    try {
+        $tokens = Invoke-RestMethod -Method POST -Uri $tokenUrl -ContentType "application/x-www-form-urlencoded" -Body $body -Headers $Headers
+    } catch {
+        $InitialError = $null
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+            try {
+                $InitialError = $_.ErrorDetails.Message | ConvertFrom-Json
+            } catch {}
+        }
+        if (-not $InitialError -and $_.Exception.Message -and $_.Exception.Message.TrimStart().StartsWith("{")) {
+            try {
+                $InitialError = $_.Exception.Message | ConvertFrom-Json
+            } catch {}
+        }
+
+        Write-Host "[!] Aborting...."
+        if ($InitialError) {
+            Write-Host "[!] Error: $($InitialError.error)"
+            Write-Host "[!] Error Description: $($InitialError.error_description)"
+            $ErrorLong = $InitialError.error_description
+        } else {
+            Write-Host "[!] Error: $($_.Exception.Message)"
+            $ErrorLong = $_.Exception.Message
+        }
+
+        if ($Reporting) {
+            $ErrorDetails = [PSCustomObject]@{
+                ClientID  = $ClientID
+                ErrorLong = $ErrorLong
+            }
+            Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile $ErrorOutputFile
+        }
+
+        $Proceed = $false
+    }
+
+    if ($Proceed -and $tokens -and $tokens.access_token) {
+        Write-Host "[+] Got an access token"
+        $tokens | Add-Member -NotePropertyName Expiration_time -NotePropertyValue (Get-Date).AddSeconds($tokens.expires_in)
+
+        if (-not $DisableJwtParsing) {
+            try {
+                $JWT = Invoke-ParseJwt -jwt $tokens.access_token
+            } catch {
+                $JwtParseError = $_
+                Write-Host "[!] JWT Parse error: $($JwtParseError)"
+                Write-Host "[!] Aborting...."
+                return $tokens
+            }
+
+            if ($JWT.appid) { $tokens | Add-Member -NotePropertyName client_app_id -NotePropertyValue $JWT.appid }
+            if ($JWT.app_displayname) { $tokens | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname }
+            if ($JWT.oid) { $tokens | Add-Member -NotePropertyName sp_object_id -NotePropertyValue $JWT.oid }
+            if ($JWT.roles) { $tokens | Add-Member -NotePropertyName roles -NotePropertyValue $JWT.roles }
+            if ($JWT.scp) { $tokens | Add-Member -NotePropertyName scp -NotePropertyValue $JWT.scp }
+            if ($JWT.tid) { $tokens | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid }
+            if ($JWT.aud) { $tokens | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud }
+            if ($JWT.upn) {
+                $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.upn
+            } elseif ($JWT.preferred_username) {
+                $tokens | Add-Member -NotePropertyName user -NotePropertyValue $JWT.preferred_username
+            }
+            Write-Host "[i] Audience: $($JWT.aud) / Expires at: $($tokens.expiration_time)"
+        } else {
+            Write-Host "[i] Expires at: $($tokens.expiration_time)"
+        }
+
+        if ($TokenOut) {
+            invoke-PrintTokenInfo -jwt $tokens -NotParsed $DisableJwtParsing
+        }
+
+        if ($Reporting) {
+            Invoke-Reporting -jwt $tokens -OutputFile $ReportOutputFile
+        }
+
+        return $tokens
+    }
+
+    if ($Proceed) {
+        Write-Host "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens"
+    }
+
+    return $null
+}
+
+function Invoke-AgentAutonomousAppFlow {
+    <#
+        .SYNOPSIS
+        Performs the Agent ID autonomous app OAuth flow.
+
+        .DESCRIPTION
+        Retrieves a blueprint assertion token (T1) and exchanges it for a resource access token as the agent identity.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$true)][string]$BlueprintClientId,
+        [Parameter(Mandatory=$true)][string]$AgentIdentityClientId,
+        [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Scope = ".default",
+        [Parameter(Mandatory=$false)][string]$BlueprintToken,
+        [Parameter(Mandatory=$false)][string]$FmiPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintClientSecret,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintCertificatePassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePemPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintPrivateKeyPemPath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintPrivateKeyPemPassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateThumbprint,
+        [Parameter(Mandatory=$false)][ValidateSet("CurrentUser","LocalMachine")][string]$BlueprintCertificateStoreLocation = "CurrentUser",
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateStoreName = "My",
+        [Parameter(Mandatory=$false)][string]$BlueprintClientAssertion,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+    )
+
+    $blueprintAssertionToken = Get-BlueprintAgentAssertionToken `
+        -TenantId $TenantId `
+        -BlueprintClientId $BlueprintClientId `
+        -AgentIdentityClientId $AgentIdentityClientId `
+        -BlueprintToken $BlueprintToken `
+        -BlueprintClientSecret $BlueprintClientSecret `
+        -BlueprintCertificatePath $BlueprintCertificatePath `
+        -BlueprintCertificatePassword $BlueprintCertificatePassword `
+        -BlueprintCertificatePemPath $BlueprintCertificatePemPath `
+        -BlueprintPrivateKeyPemPath $BlueprintPrivateKeyPemPath `
+        -BlueprintPrivateKeyPemPassword $BlueprintPrivateKeyPemPassword `
+        -BlueprintCertificateThumbprint $BlueprintCertificateThumbprint `
+        -BlueprintCertificateStoreLocation $BlueprintCertificateStoreLocation `
+        -BlueprintCertificateStoreName $BlueprintCertificateStoreName `
+        -BlueprintClientAssertion $BlueprintClientAssertion `
+        -FmiPath $FmiPath `
+        -UserAgent $UserAgent `
+        -Reporting:$Reporting
+
+    $resourceToken = Invoke-ClientCredential `
+        -ClientId $AgentIdentityClientId `
+        -TenantId $TenantId `
+        -ClientAssertion $blueprintAssertionToken `
+        -Api $Api `
+        -Scope $Scope `
+        -UserAgent $UserAgent `
+        -TokenOut:$TokenOut `
+        -DisableJwtParsing:$DisableJwtParsing `
+        -Reporting:$Reporting
+
+    return $resourceToken
+}
+
+function Invoke-AgentOnBehalfOfFlow {
+    <#
+        .SYNOPSIS
+        Performs the Agent ID on-behalf-of OAuth flow.
+
+        .DESCRIPTION
+        Retrieves a blueprint assertion token (T1) and exchanges a user assertion token for a resource token using OBO.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$true)][string]$BlueprintClientId,
+        [Parameter(Mandatory=$true)][string]$AgentIdentityClientId,
+        [Parameter(Mandatory=$true)][string]$UserAccessToken,
+        [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Scope = ".default",
+        [Parameter(Mandatory=$false)][string]$BlueprintToken,
+        [Parameter(Mandatory=$false)][string]$FmiPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintClientSecret,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintCertificatePassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePemPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintPrivateKeyPemPath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintPrivateKeyPemPassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateThumbprint,
+        [Parameter(Mandatory=$false)][ValidateSet("CurrentUser","LocalMachine")][string]$BlueprintCertificateStoreLocation = "CurrentUser",
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateStoreName = "My",
+        [Parameter(Mandatory=$false)][string]$BlueprintClientAssertion,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+    )
+
+    $blueprintAssertionToken = Get-BlueprintAgentAssertionToken `
+        -TenantId $TenantId `
+        -BlueprintClientId $BlueprintClientId `
+        -AgentIdentityClientId $AgentIdentityClientId `
+        -BlueprintToken $BlueprintToken `
+        -BlueprintClientSecret $BlueprintClientSecret `
+        -BlueprintCertificatePath $BlueprintCertificatePath `
+        -BlueprintCertificatePassword $BlueprintCertificatePassword `
+        -BlueprintCertificatePemPath $BlueprintCertificatePemPath `
+        -BlueprintPrivateKeyPemPath $BlueprintPrivateKeyPemPath `
+        -BlueprintPrivateKeyPemPassword $BlueprintPrivateKeyPemPassword `
+        -BlueprintCertificateThumbprint $BlueprintCertificateThumbprint `
+        -BlueprintCertificateStoreLocation $BlueprintCertificateStoreLocation `
+        -BlueprintCertificateStoreName $BlueprintCertificateStoreName `
+        -BlueprintClientAssertion $BlueprintClientAssertion `
+        -FmiPath $FmiPath `
+        -UserAgent $UserAgent `
+        -Reporting:$Reporting
+
+    $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
+
+    $resourceToken = Invoke-AgentJwtBearerExchange `
+        -TenantId $TenantId `
+        -ClientId $AgentIdentityClientId `
+        -Scope $ApiScopeUrl `
+        -ClientAssertion $blueprintAssertionToken `
+        -Assertion $UserAccessToken `
+        -UserAgent $UserAgent `
+        -TokenOut:$TokenOut `
+        -DisableJwtParsing:$DisableJwtParsing `
+        -Reporting:$Reporting `
+        -ReportOutputFile "AgentOnBehalfOf_report.csv" `
+        -ErrorOutputFile "AgentOnBehalfOf_errors.csv"
+
+    return $resourceToken
+}
+
+function Invoke-AgentUserFlow {
+    <#
+        .SYNOPSIS
+        Performs the Agent ID user OAuth flow.
+
+        .DESCRIPTION
+        Retrieves a blueprint assertion token (T1), then gets an agent-user assertion token (T2), and finally exchanges T2 via OBO for the target resource token.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$TenantId,
+        [Parameter(Mandatory=$true)][string]$BlueprintClientId,
+        [Parameter(Mandatory=$true)][string]$AgentIdentityClientId,
+        [Parameter(Mandatory=$true)][string]$AgentUserPrincipalName,
+        [Parameter(Mandatory=$false)][string]$AgentUserObjectId,
+        [Parameter(Mandatory=$false)][string]$Api = "graph.microsoft.com",
+        [Parameter(Mandatory=$false)][string]$Scope = ".default",
+        [Parameter(Mandatory=$false)][string]$BlueprintToken,
+        [Parameter(Mandatory=$false)][string]$AgentUserAssertionToken,
+        [Parameter(Mandatory=$false)][string]$FmiPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintClientSecret,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintCertificatePassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificatePemPath,
+        [Parameter(Mandatory=$false)][string]$BlueprintPrivateKeyPemPath,
+        [Parameter(Mandatory=$false)][System.Security.SecureString]$BlueprintPrivateKeyPemPassword,
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateThumbprint,
+        [Parameter(Mandatory=$false)][ValidateSet("CurrentUser","LocalMachine")][string]$BlueprintCertificateStoreLocation = "CurrentUser",
+        [Parameter(Mandatory=$false)][string]$BlueprintCertificateStoreName = "My",
+        [Parameter(Mandatory=$false)][string]$BlueprintClientAssertion,
+        [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        [Parameter(Mandatory=$false)][switch]$TokenOut,
+        [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
+        [Parameter(Mandatory=$false)][switch]$Reporting = $false
+    )
+
+    $blueprintAssertionToken = Get-BlueprintAgentAssertionToken `
+        -TenantId $TenantId `
+        -BlueprintClientId $BlueprintClientId `
+        -AgentIdentityClientId $AgentIdentityClientId `
+        -BlueprintToken $BlueprintToken `
+        -BlueprintClientSecret $BlueprintClientSecret `
+        -BlueprintCertificatePath $BlueprintCertificatePath `
+        -BlueprintCertificatePassword $BlueprintCertificatePassword `
+        -BlueprintCertificatePemPath $BlueprintCertificatePemPath `
+        -BlueprintPrivateKeyPemPath $BlueprintPrivateKeyPemPath `
+        -BlueprintPrivateKeyPemPassword $BlueprintPrivateKeyPemPassword `
+        -BlueprintCertificateThumbprint $BlueprintCertificateThumbprint `
+        -BlueprintCertificateStoreLocation $BlueprintCertificateStoreLocation `
+        -BlueprintCertificateStoreName $BlueprintCertificateStoreName `
+        -BlueprintClientAssertion $BlueprintClientAssertion `
+        -FmiPath $FmiPath `
+        -UserAgent $UserAgent `
+        -Reporting:$Reporting
+
+    if ([string]::IsNullOrWhiteSpace($AgentUserAssertionToken)) {
+        $agentUserBootstrapToken = Invoke-ClientCredential `
+            -ClientId $AgentIdentityClientId `
+            -TenantId $TenantId `
+            -ClientAssertion $blueprintAssertionToken `
+            -Api "api://AzureADTokenExchange" `
+            -Scope ".default" `
+            -UserAgent $UserAgent `
+            -DisableJwtParsing `
+            -Reporting:$Reporting
+
+        if (-not $agentUserBootstrapToken -or -not $agentUserBootstrapToken.access_token) {
+            throw "Unable to obtain agent-user assertion token (T2)."
+        }
+
+        $AgentUserAssertionToken = $agentUserBootstrapToken.access_token
+    }
+
+    $ApiScopeUrl = Resolve-ApiScopeUrl -Api $Api -Scope $Scope
+
+    $resourceToken = Invoke-AgentUserFicExchange `
+        -TenantId $TenantId `
+        -ClientId $AgentIdentityClientId `
+        -Scope $ApiScopeUrl `
+        -ClientAssertion $blueprintAssertionToken `
+        -UserFederatedIdentityCredential $AgentUserAssertionToken `
+        -Username $AgentUserPrincipalName `
+        -UserId $AgentUserObjectId `
+        -UserAgent $UserAgent `
+        -TokenOut:$TokenOut `
+        -DisableJwtParsing:$DisableJwtParsing `
+        -Reporting:$Reporting `
+        -ReportOutputFile "AgentUser_report.csv" `
+        -ErrorOutputFile "AgentUser_errors.csv"
+
+    return $resourceToken
 }
 
 function Invoke-ParseJwt {
@@ -1718,6 +2804,18 @@ function Show-EntraTokenAidHelp {
     Write-Host "  Invoke-ClientCredential" -ForegroundColor Yellow
     Write-Host "      Client Credential Flow (service principal authentication)" -ForegroundColor Gray
     Write-Host ""
+    Write-Host "  Invoke-ROPC" -ForegroundColor Yellow
+    Write-Host "      Resource Owner Password Credentials flow" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-AgentAutonomousAppFlow" -ForegroundColor Yellow
+    Write-Host "      Agent ID autonomous app flow (blueprint token -> resource token)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-AgentOnBehalfOfFlow" -ForegroundColor Yellow
+    Write-Host "      Agent ID on-behalf-of flow (blueprint token + user assertion -> resource token)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Invoke-AgentUserFlow" -ForegroundColor Yellow
+    Write-Host "      Agent ID user flow (blueprint token -> agent-user assertion token -> resource token)" -ForegroundColor Gray
+    Write-Host ""
     Write-Host "  Invoke-ParseJwt" -ForegroundColor Yellow
     Write-Host "      Decode and inspect JWT token claims" -ForegroundColor Gray
     Write-Host ""
@@ -1733,8 +2831,11 @@ function Show-EntraTokenAidHelp {
     Write-Host "  # Refresh a token (defaults to MS Graph API & Azure CLI as client)" -ForegroundColor Gray
     Write-Host '  $tokens = Invoke-Refresh -RefreshToken $tokens.refresh_token' -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  # Authenticate as a service principal (defaults Azure CLI as client)" -ForegroundColor Gray
+    Write-Host "  # Authenticate as a service principal (secret, cert, or client assertion)" -ForegroundColor Gray
     Write-Host '  $tokens = Invoke-ClientCredential -ClientId <ClientId> -ClientSecret <Secret> -TenantId <TenantId>' -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  # Authenticate with ROPC (username/password)" -ForegroundColor Gray
+    Write-Host '  $tokens = Invoke-ROPC -ClientID <ClientId> -Tenant <Tenant> -Username <UPN>' -ForegroundColor Yellow
     Write-Host ""
 
     Write-Host "Detailed Help" -ForegroundColor Green
@@ -1743,13 +2844,17 @@ function Show-EntraTokenAidHelp {
     Write-Host "  Get-Help Invoke-Refresh -Detailed" -ForegroundColor Yellow
     Write-Host "  Get-Help Invoke-DeviceCodeFlow -Detailed" -ForegroundColor Yellow
     Write-Host "  Get-Help Invoke-ClientCredential -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-ROPC -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-AgentAutonomousAppFlow -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-AgentOnBehalfOfFlow -Detailed" -ForegroundColor Yellow
+    Write-Host "  Get-Help Invoke-AgentUserFlow -Detailed" -ForegroundColor Yellow
     Write-Host ""
 }
 
 
 
 
-Export-ModuleMember -Function Invoke-Auth,Invoke-Refresh,Invoke-DeviceCodeFlow,Invoke-ParseJwt,Show-EntraTokenAidHelp,Invoke-ClientCredential
+Export-ModuleMember -Function Invoke-Auth,Invoke-Refresh,Invoke-DeviceCodeFlow,Invoke-ParseJwt,Show-EntraTokenAidHelp,Invoke-ClientCredential,Invoke-ROPC,Invoke-AgentAutonomousAppFlow,Invoke-AgentOnBehalfOfFlow,Invoke-AgentUserFlow
 
 
 

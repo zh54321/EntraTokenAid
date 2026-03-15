@@ -54,6 +54,10 @@ The module includes the following commands:
 | `Invoke-Auth`             | Perform authentication (auth code flow) and retrieve tokens.          |API: MS Graph / Client: Azure CLI / CAE: Yes|
 | `Invoke-DeviceCodeFlow`   | Authenticate via the device code flow.                                |API: MS Graph / Client: Azure CLI|
 | `Invoke-ClientCredential` | Authenticate using the client credential flow.                        |API: MS Graph|
+| `Invoke-ROPC`             | Authenticate using resource owner password credentials (ROPC).        |API: MS Graph|
+| `Invoke-AgentAutonomousAppFlow` | Agent ID autonomous app flow wrapper.                         |blueprint token -> resource token|
+| `Invoke-AgentOnBehalfOfFlow` | Agent ID on-behalf-of flow wrapper.                              |blueprint token + user assertion -> resource token|
+| `Invoke-AgentUserFlow` | Agent ID user flow wrapper.                                              |blueprint token -> agent-user assertion token -> resource token|
 | `Invoke-Refresh`          | Get a new access token using the refresh token.                       |API: MS Graph / Client: Azure CLI|
 | `Invoke-ParseJwt`         | Decode a JWT and display its body properties.                         |-|
 | `Show-EntraTokenAidHelp`  | Show Help.                                                            |-|
@@ -213,7 +217,11 @@ $Tokens = Invoke-DeviceCodeFlow
 
 ### `Invoke-ClientCredential`
 
-Authenticate using the client credential flow. Currently, only client secrets are supported.
+Authenticate using the client credential flow with one of these methods:
+- Client secret
+- Certificate-based client assertion (certificate file or Windows cert store)
+- PEM certificate + key based client assertion
+- Manually provided `client_assertion` JWT
 
 #### Parameters
 
@@ -221,12 +229,22 @@ Authenticate using the client credential flow. Currently, only client secrets ar
 |----------------------  |-----------------------------------------------------------------------------|---------------------------------------------------|
 | **ClientID**           | Specifies the clientID for authentication.                                  | -|
 | **ClientSecret**       | Client secret of the application (secure prompt if empty).                         | -|
-| **Tenant**             | Specific tenant id.                                                         | `-`                                   |
+| **CertificatePath**    | Path to certificate file (PFX/P12 with private key).                        | -|
+| **CertificatePassword**| Optional password for `CertificatePath`.                                    | -|
+| **CertificatePemPath** | Path to PEM certificate file (for example `cert.pem`).                      | -|
+| **PrivateKeyPemPath**  | Path to PEM private key file (for example `key.pem`).                       | -|
+| **PrivateKeyPemPassword** | Optional password for encrypted PEM key files.                            | -|
+| **CertificateThumbprint** | Certificate thumbprint from Windows cert store (must have private key).  | -|
+| **CertificateStoreLocation** | Certificate store location for thumbprint lookup.                     | `CurrentUser`|
+| **CertificateStoreName** | Certificate store name for thumbprint lookup.                             | `My`|
+| **ClientAssertion**    | Manually provided JWT client assertion.                                     | -|
+| **TenantId**           | Specific tenant id.                                                         | `-`                                   |
 | **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
 | **Scope**              | Scopes (space separated) to be requested.                                    | `.default`                          |
 | **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
 | **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
+| **FmiPath**            | Optional `fmi_path` request parameter (autonomous agent token scenarios).   | `-`                                               |
 | **Reporting**          | If provided, enables detailed token logging to csv.                         | `false`                                           |  
 
 
@@ -236,10 +254,62 @@ Authenticates with the specified client ID and secret, targeting the default Mic
 ```powershell
 Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id"
 ```
+
+Uses a certificate file (PFX/P12):
+```powershell
+Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificatePath "appcert.pfx"
+```
+```powershell
+$pw = ConvertTo-SecureString "ChangeMe!" -AsPlainText -Force
+Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificatePath "appcert.pfx" -CertificatePassword $pw
+```
+
+Uses PEM certificate + key files:
+```powershell
+Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificatePemPath "cert.pem" -PrivateKeyPemPath "key.pem"
+```
+
+Quick PowerShell example to generate a self-signed test certificate and export a `PFX` file on Windows:
+```powershell
+$daysValid = 365
+$name = "EntraTokenAid-Test"
+$after = (Get-Date).AddDays($daysValid)
+$cert = New-SelfSignedCertificate -Subject "CN=$name" -KeyLength 4096 -NotAfter $after -CertStoreLocation "Cert:\CurrentUser\My" -KeyExportPolicy Exportable
+Export-Certificate -Cert $cert -FilePath ".\$name.cer"
+Export-PfxCertificate -Cert $cert -FilePath ".\$name.pfx" -Password (Read-Host "PFX password" -AsSecureString)
+Write-Host "Thumbprint: $($cert.Thumbprint) Valid until: $($cert.NotAfter)"
+```
+Upload `$name.cer` to the Entra app registration. Then use `$name.pfx` with `-CertificatePath`.
+
+Quick OpenSSL example to generate PEM files:
+```powershell
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=EntraTokenAid-Test"
+openssl x509 -outform der -in cert.pem -out cert.cer
+```
+Upload `cert.cer` to the Entra app registration. Then use `cert.pem` + `key.pem` with `-CertificatePemPath` and `-PrivateKeyPemPath`.
+
+Uses a certificate directly from the Windows certificate store:
+```powershell
+Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -CertificateThumbprint "0123456789ABCDEF0123456789ABCDEF01234567" -CertificateStoreLocation CurrentUser -CertificateStoreName My
+```
+
+Uses a manually provided JWT client assertion.
+```powershell
+$jwtAssertion = "eyJhbGciOiJQUzI1NiIsInR5cCI6IkpXVCJ9...."
+Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -ClientAssertion $jwtAssertion
+```
+
+Manually requests an autonomous agent blueprint token including `fmi_path`.
+```powershell
+Invoke-ClientCredential -ClientId "<agent-blueprint-client-id>" -TenantId "<tenant-id>" -Scope "api://AzureADTokenExchange/.default" -ClientSecret "<secret>" -FmiPath "<agent-identity-client-id>"
+```
+
 Authenticates with the specified client credentials and retrieves a token for the Azure Management API.
 ```powershell
 Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id" -Api "management.azure.com"
 ```
+
+Note: native PEM loading requires PowerShell 7+ (.NET 5+). On Windows PowerShell 5.1, convert PEM+key to PFX and use `-CertificatePath`.
 Prompts for the client secret securely, authenticates, and logs detailed results to a CSV file.
 ```powershell
 Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -Reporting
@@ -247,6 +317,95 @@ Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -R
 Connect to MS Graph API:
 ```powershell
 Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
+```
+
+### `Invoke-ROPC`
+
+Authenticate using the OAuth 2.0 Resource Owner Password Credentials flow.
+Supports public and confidential clients (`-ClientSecret` optional).
+
+Important: ROPC is a legacy flow and will fail in common modern setups (for example MFA-required accounts, many federated scenarios, or blocked password grant usage).
+
+#### Parameters
+
+| Parameter            | Description                                                                 | Default Value                                     |
+|----------------------|-----------------------------------------------------------------------------|---------------------------------------------------|
+| **ClientID**         | Specifies the client ID for authentication (MANDATORY).                     | -                                                 |
+| **Username**         | Username / UPN for authentication (MANDATORY).                              | -                                                 |
+| **Password**         | User password (prompts securely if omitted).                                | -                                                 |
+| **ClientSecret**     | Optional client secret (for confidential client ROPC).                      | -                                                 |
+| **Api**              | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
+| **Scope**            | Scopes (space separated) to be requested.                                   | `.default offline_access`                         |
+| **Tenant**           | Specific tenant id.                                                         | `organizations`                                   |
+| **TokenOut**         | If provided, outputs token details to console.                              | `false`                                           |
+| **DisableJwtParsing**| Skips the parsing of the JWT.                                               | `false`                                           |
+| **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
+| **UserAgent**        | User agent used.                                                            | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36` |
+| **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
+
+#### Example
+
+Prompts for the password securely and requests a Graph token:
+```powershell
+Invoke-ROPC -ClientID "<client-id>" -Tenant "<tenant-id>" -Username "user@contoso.com"
+```
+
+Use explicit delegated scopes:
+```powershell
+Invoke-ROPC -ClientID "<client-id>" -Tenant "<tenant-id>" -Username "user@contoso.com" -Scope "User.Read offline_access"
+```
+
+Use a confidential client (`client_secret` included):
+```powershell
+$pw = "SuperSecretUserPassword!"
+Invoke-ROPC -ClientID "<client-id>" -ClientSecret "<secret>" -Tenant "<tenant-id>" -Username "user@contoso.com" -Password $pw -Api "graph.microsoft.com" -Scope "User.Read offline_access"
+```
+
+### `Invoke-AgentAutonomousAppFlow`
+
+Agent ID wrapper for the autonomous app OAuth flow (blueprint token -> resource token).
+
+Core parameters:
+- `TenantId`, `BlueprintClientId`, `AgentIdentityClientId`
+- Optional target: `Api`, `Scope`
+- Optional pre-obtained `BlueprintToken`
+- Optional blueprint credential parameters: `BlueprintClientSecret`, `BlueprintCertificatePath`, `BlueprintCertificatePemPath`, `BlueprintPrivateKeyPemPath`, `BlueprintCertificateThumbprint`, `BlueprintClientAssertion`
+
+Example:
+```powershell
+Invoke-AgentAutonomousAppFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -BlueprintClientSecret "<secret>" -Api "graph.microsoft.com"
+```
+
+### `Invoke-AgentOnBehalfOfFlow`
+
+Agent ID wrapper for the on-behalf-of OAuth flow (blueprint token + user assertion -> resource token).
+
+Core parameters:
+- `TenantId`, `BlueprintClientId`, `AgentIdentityClientId`, `UserAccessToken`
+- Optional target: `Api`, `Scope`
+- Optional pre-obtained `BlueprintToken`
+- Optional blueprint credential parameters (same pattern as above, including `BlueprintCertificatePemPath` + `BlueprintPrivateKeyPemPath` for PEM credentials)
+
+Example:
+```powershell
+Invoke-AgentOnBehalfOfFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -UserAccessToken $Tc.access_token -BlueprintClientSecret "<secret>" -Api "graph.microsoft.com" -Scope "User.Read"
+```
+
+### `Invoke-AgentUserFlow`
+
+Agent ID wrapper for the user OAuth flow (blueprint token -> agent-user assertion token -> resource token) using `grant_type=user_fic` for the final exchange.
+
+Core parameters:
+- `TenantId`, `BlueprintClientId`, `AgentIdentityClientId`, `AgentUserPrincipalName`
+- Optional user identifier override: `AgentUserObjectId`
+- Optional target: `Api`, `Scope`
+- Optional pre-obtained `BlueprintToken`
+- Optional pre-obtained `AgentUserAssertionToken` (`T2`)
+- Optional blueprint credential parameters (same pattern as above, including `BlueprintCertificatePemPath` + `BlueprintPrivateKeyPemPath` for PEM credentials)
+
+Example:
+```powershell
+Invoke-AgentUserFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -AgentUserPrincipalName "agent.user@contoso.com" -BlueprintClientSecret "<secret>" -Api "graph.microsoft.com" -Scope "User.Read"
 ```
 
 ---
@@ -435,6 +594,11 @@ This module includes a JWT parsing method that was initially adapted from the fo
 - [Decode JWT Access and ID Tokens via PowerShell](https://www.michev.info/blog/post/2140/decode-jwt-access-and-id-tokens-via-powershell) by [Michev](https://www.michev.info)
 
 ## Changelog
+
+### 2026-03-05
+
+#### Added
+- New `Invoke-ROPC` command for OAuth 2.0 Resource Owner Password Credentials authentication (supports optional `client_secret`).
 
 ### 2026-01-27
 
