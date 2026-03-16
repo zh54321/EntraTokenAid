@@ -1550,6 +1550,7 @@ function Invoke-ClientCredential {
                 if ($JWT.app_displayname) {$TokensClientCredential | Add-Member -NotePropertyName client_app -NotePropertyValue $JWT.app_displayname}
                 $TokensClientCredential | Add-Member -NotePropertyName sp_object_id -NotePropertyValue $JWT.oid
                 if ($JWT.roles) {$TokensClientCredential | Add-Member -NotePropertyName roles -NotePropertyValue $JWT.roles}
+                if ($JWT.xms_par_app_azp) {$TokensClientCredential | Add-Member -NotePropertyName xms_par_app_azp -NotePropertyValue $JWT.xms_par_app_azp}
                 $TokensClientCredential | Add-Member -NotePropertyName tenant -NotePropertyValue $JWT.tid
                 $TokensClientCredential | Add-Member -NotePropertyName audience -NotePropertyValue $JWT.aud
                 Write-StatusMessage -Message "[i] Audience: $($JWT.aud) / Expires at: $($TokensClientCredential.expiration_time)" -Silent:$Silent
