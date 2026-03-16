@@ -84,6 +84,45 @@ function Resolve-ApiScopeUrl {
     return ($resolvedTokens -join ' ')
 }
 
+function New-OAuthClaimsJson {
+    <#
+    .SYNOPSIS
+    Builds a v2 OAuth claims JSON string for token/authorize requests.
+    #>
+    param(
+        [Parameter(Mandatory = $false)][bool]$DisableCAE,
+        [Parameter(Mandatory = $false)][bool]$ForceMfa,
+        [Parameter(Mandatory = $false)][bool]$ForceNgcMfa
+    )
+
+    $accessTokenClaims = @{}
+
+    if (-not $DisableCAE) {
+        $accessTokenClaims["xms_cc"] = @{
+            values = @("CP1")
+        }
+    }
+
+    if ($ForceMfa -or $ForceNgcMfa) {
+        $amrValues = New-Object System.Collections.Generic.List[string]
+        if ($ForceNgcMfa) {
+            $amrValues.Add("ngcmfa")
+        }
+        $amrValues.Add("mfa")
+        $accessTokenClaims["amr"] = @{
+            values = $amrValues.ToArray()
+        }
+    }
+
+    if ($accessTokenClaims.Count -eq 0) {
+        return $null
+    }
+
+    return (@{
+        access_token = $accessTokenClaims
+    } | ConvertTo-Json -Compress -Depth 5)
+}
+
 function Invoke-Auth {
     <#
     .SYNOPSIS
@@ -145,6 +184,12 @@ function Invoke-Auth {
     Disables Continuous Access Evaluation (CAE), which is used to revoke tokens in real-time based on certain security events.
     Access token are shorter lived when CAE is not used.
 
+    .PARAMETER ForceMfa
+    Requests an MFA-authenticated context by adding an `amr=mfa` claim to the OAuth request.
+
+    .PARAMETER ForceNgcMfa
+    Requests an NGC MFA-authenticated context by adding `amr` values `ngcmfa` and `mfa` to the OAuth request.
+
     .PARAMETER Origin
     Define Origin Header to be used in the HTTP request to the token endpoint (required for SPA) (Optional).
 
@@ -201,6 +246,8 @@ function Invoke-Auth {
         [Parameter(Mandatory=$false)][switch]$DisablePrompt = $false,
         [Parameter(Mandatory=$false)][switch]$DisablePKCE = $false,
         [Parameter(Mandatory=$false)][switch]$DisableCAE = $false,
+        [Parameter(Mandatory=$false)][switch]$ForceMfa = $false,
+        [Parameter(Mandatory=$false)][switch]$ForceNgcMfa = $false,
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
         [Parameter(Mandatory=$false)][string]$Origin,
         [Parameter(Mandatory=$false)][string]$ReportName = "Code",
@@ -264,9 +311,9 @@ function Invoke-Auth {
         $Url += "&login_hint=$LoginHint"
     }
     
-    #Check if CAE is wanted
-    if (-not $DisableCAE) {
-        $Url += '&claims={%22access_token%22:%20{%22xms_cc%22:%20{%22values%22:%20[%22CP1%22]}}}'
+    $claimsJson = New-OAuthClaimsJson -DisableCAE:$DisableCAE -ForceMfa:$ForceMfa -ForceNgcMfa:$ForceNgcMfa
+    if ($claimsJson) {
+        $Url += "&claims=$([System.Uri]::EscapeDataString($claimsJson))"
     }
 
     #If a local redirect URL is used a local HTTP server is spawned to catch the oAuth code
@@ -433,7 +480,7 @@ function Invoke-Auth {
                                 }
 
                                 #Call the token endpoint
-                                $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
+                                $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -ForceMfa $ForceMfa -ForceNgcMfa $ForceNgcMfa -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
                                 $Proceed = $false
 
                             } elseif ($Request.HttpMethod -eq 'GET' -and $($Request.QueryString) -match "\berror\b") {
@@ -595,7 +642,7 @@ function Invoke-Auth {
         if ($AuthorizationCode) {
             Write-StatusMessage -Message "[+] Got an AuthCode" -Silent:$Silent
             #Use function to call the Token endpoint
-            $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
+            $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -ForceMfa $ForceMfa -ForceNgcMfa $ForceNgcMfa -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
             return $tokens 
         }
     }
@@ -654,7 +701,7 @@ function Invoke-Auth {
         }
     
         #Call the token endpoint
-        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
+        $tokens = Get-Token -ClientID $ClientID -ApiScopeUrl $ApiScopeUrl -RedirectURL $RedirectURL -Tenant $Tenant -PKCE $PKCE -DisablePKCE $DisablePKCE -DisableCAE $DisableCAE -ForceMfa $ForceMfa -ForceNgcMfa $ForceNgcMfa -TokenOut $TokenOut -DisableJwtParsing $DisableJwtParsing -AuthorizationCode $AuthorizationCode -ReportName $ReportName -Reporting $Reporting -Origin $Origin -UserAgent $UserAgent -Silent $Silent
         return $tokens
     }
 }
@@ -904,6 +951,12 @@ function Invoke-DeviceCodeFlow {
         .PARAMETER DisableBrowserStart
         Disables the automatic start of the browser.
 
+        .PARAMETER ForceMfa
+        Requests an MFA-authenticated context by adding an `amr=mfa` claim to the device code and token requests.
+
+        .PARAMETER ForceNgcMfa
+        Requests an NGC MFA-authenticated context by adding `amr` values `ngcmfa` and `mfa` to the device code and token requests.
+
         .PARAMETER TokenOut
         Outputs the access and refresh tokens to the console upon successful authentication.
 
@@ -944,6 +997,8 @@ function Invoke-DeviceCodeFlow {
         [Parameter(Mandatory=$false)][switch]$TokenOut,
         [Parameter(Mandatory=$false)][switch]$DisableJwtParsing = $false,
         [Parameter(Mandatory=$false)][switch]$DisableBrowserStart = $false,
+        [Parameter(Mandatory=$false)][switch]$ForceMfa = $false,
+        [Parameter(Mandatory=$false)][switch]$ForceNgcMfa = $false,
         [Parameter(Mandatory=$false)][string]$UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         [Parameter(Mandatory=$false)][string]$Tenant = "organizations",
         [Parameter(Mandatory=$false)][switch]$Reporting = $false,
@@ -961,6 +1016,10 @@ function Invoke-DeviceCodeFlow {
     $Body = @{
         client_id   = $ClientID
         scope       = $ApiScopeUrl
+    }
+    $deviceClaimsJson = New-OAuthClaimsJson -DisableCAE:$true -ForceMfa:$ForceMfa -ForceNgcMfa:$ForceNgcMfa
+    if ($deviceClaimsJson) {
+        $Body["claims"] = $deviceClaimsJson
     }
     Write-StatusMessage -Message "[*] Starting Device Code Flow: API: $Api / Client id: $ClientID" -Silent:$Silent
 
@@ -1006,6 +1065,9 @@ function Invoke-DeviceCodeFlow {
             client_id   = $ClientID
             grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
             code        =  $DeviceCodeDetails.device_code
+        }
+        if ($deviceClaimsJson) {
+            $Body["claims"] = $deviceClaimsJson
         }
 
         $Counter = 0
@@ -2622,6 +2684,12 @@ function Get-Token {
     .PARAMETER DisableJwtParsing
     Skips JWT parsing when set to $true (Optional).
 
+    .PARAMETER ForceMfa
+    Requests an MFA-authenticated context by adding an `amr=mfa` claim to the token request.
+
+    .PARAMETER ForceNgcMfa
+    Requests an NGC MFA-authenticated context by adding `amr` values `ngcmfa` and `mfa` to the token request.
+
     .PARAMETER ReportName
     Specifies the filename for the generated report (Optional).
 
@@ -2643,6 +2711,8 @@ function Get-Token {
         [Parameter(Mandatory=$false)][string]$PKCE,
         [Parameter(Mandatory=$false)][bool]$DisablePKCE,
         [Parameter(Mandatory=$false)][bool]$DisableCAE,
+        [Parameter(Mandatory=$false)][bool]$ForceMfa,
+        [Parameter(Mandatory=$false)][bool]$ForceNgcMfa,
         [Parameter(Mandatory=$false)][bool]$Reporting,
         [Parameter(Mandatory=$false)][bool]$TokenOut,
         [Parameter(Mandatory=$false)][bool]$DisableJwtParsing,
@@ -2687,9 +2757,9 @@ function Get-Token {
         }
     }
 
-    #Check if CAE is deactivated
-    if (-not $DisableCAE) {
-        $Body.Add("claims", '{"access_token": {"xms_cc": {"values": ["CP1"]}}}')
+    $claimsJson = New-OAuthClaimsJson -DisableCAE:$DisableCAE -ForceMfa:$ForceMfa -ForceNgcMfa:$ForceNgcMfa
+    if ($claimsJson) {
+        $Body.Add("claims", $claimsJson)
     }
 
     Try {

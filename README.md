@@ -104,6 +104,8 @@ All parameters are optional.
 | **HttpTimeout**      | Time in seconds the HTTP server waits for the OAuth callback.               | `180`                                              |
 | **DisablePKCE**      | Disables the PKCE usage.                                                    | `false`                                           |
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
+| **ForceMfa**         | Requests an MFA-authenticated context by adding an `amr=mfa` claim.         | `false`                                           |
+| **ForceNgcMfa**      | Requests an NGC MFA-authenticated context by adding `amr=ngcmfa,mfa`.       | `false`                                           |
 | **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
 | **Silent**           | Suppresses status messages written with `Write-Host`.                       | `false`                                           |
@@ -133,6 +135,14 @@ $Tokens = Invoke-Auth -ClientID '9ba1a5c7-f17a-4de9-a1f1-6178c8d51223' -Redirect
 Get tokens for main.iam.ad.ext.azure.com:
 ```powershell
 $Tokens = Invoke-Auth -Api '74658136-14ec-4630-ad9b-26e160ff0fc6'
+```
+Request an MFA-authenticated context:
+```powershell
+$Tokens = Invoke-Auth -ForceMfa
+```
+Request an NGC MFA-authenticated context:
+```powershell
+$Tokens = Invoke-Auth -ForceNgcMfa
 ```
 Perform automated testing by disabling user selection (the already logged-in user in the browser will be used), activating reporting, setting the HTTP timeout, and looping through a list of client IDs:
 ```powershell
@@ -186,6 +196,8 @@ All parameters are optional.
 | **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
 | **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
 | **DisableBrowserStart**| Disables the automatic start of the browser.                                | `false`                                           |
+| **ForceMfa**           | Requests an MFA-authenticated context by adding an `amr=mfa` claim.         | `false`                                           |
+| **ForceNgcMfa**        | Requests an NGC MFA-authenticated context by adding `amr=ngcmfa,mfa`.       | `false`                                           |
 | **Reporting**          | If provided, enables detailed token logging to csv.                         | `false`                                           |  
 | **Silent**             | Suppresses status messages written with `Write-Host`.                       | `false`                                           |
 
@@ -203,6 +215,14 @@ Invoke-DeviceCodeFlow -API management.azure.com
 Authenticate using the device code flow, specifying the client ID and API.
 ```powershell
 $Token = Invoke-DeviceCodeFlow -ClientID "your-client-id" -Api "graph.microsoft.com"
+```
+Request an MFA-authenticated context:
+```powershell
+Invoke-DeviceCodeFlow -ForceMfa
+```
+Request an NGC MFA-authenticated context:
+```powershell
+Invoke-DeviceCodeFlow -ForceNgcMfa
 ```
 Connect to MS Graph API:
 ```powershell
