@@ -19,8 +19,10 @@ This tool bridges this gap with a lightweight, standalone PowerShell solution th
 - **JWT Parsing**: Automatically decodes access tokens to display details (e.g., scope, tenant, IP, authentication methods).
 - **Avoiding Consent**: By default, the tool uses the Azure CLI client ID, enabling many MS Graph API actions without additional consent due to pre-consented permissions.
 - **Parameters**: A wide range of parameters allow you to customize the tool's behavior, such as enabling features like PKCE, CAE, and more, providing greater control during usage.
+- **Client Credentials Flow**: Supports app-only authentication via client secret, PFX/P12 certificate, PEM files, Windows certificate store, or a manually provided JWT client assertion.
+- **Agent Identity Flows**: Wrapper functions for Microsoft Entra Agent ID OAuth flows: autonomous app, on-behalf-of, and agent user.
 - **Automation-Friendly**: Enables automated OAuth Auth Code Flow tests by disabling user selection, with the gathered tokens and claims exported to a CSV file.
-- **Experimental: Catching OAuth Codes on any URL**: Utilizes a legacy method to launch and control a browser, allowing automatic retrieval of the authorization code and seamless token exchange (Windows only). 
+- **Experimental: Catching OAuth Codes on any URL**: Utilizes a legacy method to launch and control a browser, allowing automatic retrieval of the authorization code and seamless token exchange (Windows only).
 ---
 
 ## Images
@@ -55,9 +57,9 @@ The module includes the following commands:
 | `Invoke-DeviceCodeFlow`         | Authenticate via the device code flow.                         |API: MS Graph / Client: Azure CLI|
 | `Invoke-ClientCredential`       | Authenticate using the client credential flow.                 |API: MS Graph|
 | `Invoke-ROPC`                   | Authenticate using resource owner password credentials (ROPC). |API: MS Graph|
-| `Invoke-AgentAutonomousAppFlow` | Agent ID autonomous app flow wrapper.                          |blueprint token -> resource token|
-| `Invoke-AgentOnBehalfOfFlow`    | Agent ID on-behalf-of flow wrapper.                            |blueprint token + user assertion -> resource token|
-| `Invoke-AgentUserFlow`          | Agent ID user flow wrapper.                                    |blueprint token -> agent-user assertion token -> resource token|
+| `Invoke-AgentAutonomousAppFlow` | Agent ID autonomous app flow wrapper.                          |API: MS Graph|
+| `Invoke-AgentOnBehalfOfFlow`    | Agent ID on-behalf-of flow wrapper.                            |API: MS Graph|
+| `Invoke-AgentUserFlow`          | Agent ID user flow wrapper.                                    |API: MS Graph|
 | `Invoke-Refresh`                | Get a new access token using the refresh token.                |API: MS Graph / Client: Azure CLI|
 | `Invoke-ParseJwt`               | Decode a JWT and display its body properties.                  |-|
 | `Show-EntraTokenAidHelp`        | Show Help.                                                     |-|
@@ -245,30 +247,57 @@ Authenticate using the client credential flow with one of these methods:
 - PEM certificate + key based client assertion
 - Manually provided `client_assertion` JWT
 
-#### Parameters
+#### Common Parameters
 
-| Parameter              | Description                                                                 | Default Value                                     |
-|----------------------  |-----------------------------------------------------------------------------|---------------------------------------------------|
-| **ClientID**           | Specifies the clientID for authentication.                                  | -|
-| **ClientSecret**       | Client secret of the application (secure prompt if empty).                         | -|
-| **CertificatePath**    | Path to certificate file (PFX/P12 with private key).                        | -|
-| **CertificatePassword**| Optional password for `CertificatePath`.                                    | -|
-| **CertificatePemPath** | Path to PEM certificate file (for example `cert.pem`).                      | -|
-| **PrivateKeyPemPath**  | Path to PEM private key file (for example `key.pem`).                       | -|
-| **PrivateKeyPemPassword** | Optional password for encrypted PEM key files.                            | -|
-| **CertificateThumbprint** | Certificate thumbprint from Windows cert store (must have private key).  | -|
-| **CertificateStoreLocation** | Certificate store location for thumbprint lookup.                     | `CurrentUser`|
-| **CertificateStoreName** | Certificate store name for thumbprint lookup.                             | `My`|
-| **ClientAssertion**    | Manually provided JWT client assertion.                                     | -|
-| **TenantId**           | Specific tenant id.                                                         | `-`                                   |
-| **Api**                | API for which the access token is needed (FQDN or GUID).                    | `graph.microsoft.com`                             |
-| **Scope**              | Scopes (space separated) to be requested.                                    | `.default`                          |
-| **UserAgent**          | User agent used. | `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari 537`|  
-| **TokenOut**           | If provided, outputs the raw token to console.                              | `false`                                           |
-| **DisableJwtParsing**  | Skips the parsing of the JWT.                                               | `false`                                           |
-| **FmiPath**            | Optional `fmi_path` request parameter (autonomous agent token scenarios).   | `-`                                               |
-| **Reporting**          | If provided, enables detailed token logging to csv.                         | `false`                                           |  
-| **Silent**             | Suppresses status messages written with `Write-Host`.                       | `false`                                           |  
+| Parameter           | Description                                                  | Default Value         |
+|---------------------|--------------------------------------------------------------|-----------------------|
+| **ClientId**        | Client ID of the application (MANDATORY).                    | -                     |
+| **TenantId**        | Tenant ID (MANDATORY).                                       | -                     |
+| **Api**             | API for which the access token is needed (FQDN or GUID).     | `graph.microsoft.com` |
+| **Scope**           | Scopes (space-separated) to be requested.                    | `.default`            |
+| **UserAgent**       | User agent used in HTTP requests.                            | Chrome 130 UA         |
+| **TokenOut**        | If provided, outputs the raw token to console.               | `false`               |
+| **DisableJwtParsing** | Skips the parsing of the JWT.                              | `false`               |
+| **FmiPath**         | Optional `fmi_path` parameter (autonomous agent scenarios).  | -                     |
+| **Reporting**       | If provided, enables detailed token logging to CSV.          | `false`               |
+| **Silent**          | Suppresses status messages written with `Write-Host`.        | `false`               |
+
+#### Credential Methods (choose exactly one)
+
+**Client secret**
+
+| Parameter        | Description                                               | Default Value |
+|------------------|-----------------------------------------------------------|---------------|
+| **ClientSecret** | Client secret of the application (secure prompt if empty). | -             |
+
+**PFX / P12 certificate file**
+
+| Parameter               | Description                              | Default Value |
+|-------------------------|------------------------------------------|---------------|
+| **CertificatePath**     | Path to a PFX/P12 certificate file.      | -             |
+| **CertificatePassword** | Optional password for the PFX file.      | -             |
+
+**PEM certificate + key files** *(requires PowerShell 7+ / .NET 5+)*
+
+| Parameter                  | Description                                    | Default Value |
+|----------------------------|------------------------------------------------|---------------|
+| **CertificatePemPath**     | Path to PEM certificate file (e.g. `cert.pem`). | -           |
+| **PrivateKeyPemPath**      | Path to PEM private key file (e.g. `key.pem`).  | -           |
+| **PrivateKeyPemPassword**  | Optional password for an encrypted PEM key.    | -             |
+
+**Windows certificate store**
+
+| Parameter                     | Description                                                        | Default Value  |
+|-------------------------------|--------------------------------------------------------------------|----------------|
+| **CertificateThumbprint**     | Thumbprint of a certificate in the Windows cert store (MANDATORY). | -              |
+| **CertificateStoreLocation**  | Certificate store location.                                        | `CurrentUser`  |
+| **CertificateStoreName**      | Certificate store name.                                            | `My`           |
+
+**Manual client assertion**
+
+| Parameter           | Description                           | Default Value |
+|---------------------|---------------------------------------|---------------|
+| **ClientAssertion** | Manually provided JWT client assertion. | -           |
 
 
 #### Example
@@ -332,15 +361,13 @@ Authenticates with the specified client credentials and retrieves a token for th
 Invoke-ClientCredential -ClientId "your-client-id" -ClientSecret "your-client-secret" -TenantId "your-tenant-id" -Api "management.azure.com"
 ```
 
-Note: native PEM loading requires PowerShell 7+ (.NET 5+). On Windows PowerShell 5.1, convert PEM+key to PFX and use `-CertificatePath`.
-Prompts for the client secret securely, authenticates, and logs detailed results to a CSV file.
+Prompts for the client secret securely and logs detailed results to a CSV file:
 ```powershell
 Invoke-ClientCredential -ClientId "your-client-id" -TenantId "your-tenant-id" -Reporting
 ```
-Connect to MS Graph API:
-```powershell
-Connect-MgGraph -AccessToken ($Tokens.access_token | ConvertTo-SecureString -AsPlainText -Force)
-```
+
+> **Note:** Native PEM loading requires PowerShell 7+ (.NET 5+). On Windows PowerShell 5.1, convert the PEM + key to PFX and use `-CertificatePath` instead.
+
 
 ### `Invoke-ROPC`
 
@@ -387,52 +414,160 @@ Invoke-ROPC -ClientID "<client-id>" -ClientSecret "<secret>" -Tenant "<tenant-id
 
 ### `Invoke-AgentAutonomousAppFlow`
 
-Agent ID wrapper for the autonomous app OAuth flow (blueprint token -> resource token).
+Agent ID wrapper for the autonomous app OAuth flow (blueprint token -> resource token). See [Agent autonomous app OAuth flow](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-autonomous-app-oauth-flow) for protocol details.
 
-Core parameters:
-- `TenantId`, `BlueprintClientId`, `AgentIdentityClientId`
-- Optional target: `Api`, `Scope`
-- Optional pre-obtained `BlueprintToken`
-- Optional blueprint credential parameters: `BlueprintClientSecret`, `BlueprintCertificatePath`, `BlueprintCertificatePemPath`, `BlueprintPrivateKeyPemPath`, `BlueprintCertificateThumbprint`, `BlueprintClientAssertion`
-- Optional output controls: `TokenOut`, `DisableJwtParsing`, `Reporting`, `Silent`
+#### Parameters
 
-Example:
+| Parameter | Description | Default Value |
+|---|---|---|
+| **TenantId** | Tenant ID (MANDATORY). | - |
+| **BlueprintClientId** | Client ID of the Entra Agent ID blueprint application (MANDATORY). | - |
+| **AgentIdentityClientId** | Client ID of the agent identity application (MANDATORY). | - |
+| **Api** | Target API (FQDN or GUID). | `graph.microsoft.com` |
+| **Scope** | Scopes to request (space-separated). | `.default` |
+| **BlueprintToken** | Pre-obtained blueprint assertion token. If provided, skips the T1 acquisition step. | - |
+| **FmiPath** | Optional `fmi_path` value added to the blueprint token request. | - |
+| **BlueprintClientSecret** | Client secret for authenticating the blueprint application. | - |
+| **BlueprintCertificatePath** | Path to a PFX/P12 certificate file for blueprint app authentication. | - |
+| **BlueprintCertificatePassword** | Password for the PFX certificate file. | - |
+| **BlueprintCertificatePemPath** | Path to a PEM certificate file (use with `-BlueprintPrivateKeyPemPath`). | - |
+| **BlueprintPrivateKeyPemPath** | Path to a PEM private key file (use with `-BlueprintCertificatePemPath`). | - |
+| **BlueprintPrivateKeyPemPassword** | Password for an encrypted PEM private key. | - |
+| **BlueprintCertificateThumbprint** | Thumbprint of a certificate in the Windows certificate store. | - |
+| **BlueprintCertificateStoreLocation** | Certificate store location used with `-BlueprintCertificateThumbprint`. | `CurrentUser` |
+| **BlueprintCertificateStoreName** | Certificate store name used with `-BlueprintCertificateThumbprint`. | `My` |
+| **BlueprintClientAssertion** | Manually provided JWT client assertion for the blueprint application. | - |
+| **UserAgent** | User agent string used in HTTP requests. | Chrome 130 UA |
+| **TokenOut** | Outputs the raw access token to the console. | `false` |
+| **DisableJwtParsing** | Skips parsing of the JWT access token. | `false` |
+| **Reporting** | Enables detailed token logging to CSV. | `false` |
+| **Silent** | Suppresses console status messages. | `false` |
+
+#### Examples
+
+Authenticate the blueprint app with a client secret and get an MS Graph token as the agent identity:
 ```powershell
-Invoke-AgentAutonomousAppFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -BlueprintClientSecret "<secret>" -Api "graph.microsoft.com"
+$tokens = Invoke-AgentAutonomousAppFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -BlueprintClientSecret "<secret>"
+```
+
+Authenticate the blueprint app using a PFX certificate:
+```powershell
+$tokens = Invoke-AgentAutonomousAppFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -BlueprintCertificatePath "C:\certs\blueprint.pfx" -Api "graph.microsoft.com"
+```
+
+Authenticate the blueprint app using a certificate from the Windows certificate store:
+```powershell
+$tokens = Invoke-AgentAutonomousAppFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -BlueprintCertificateThumbprint "0123456789ABCDEF0123456789ABCDEF01234567" -Api "management.azure.com"
+```
+
+Reuse a pre-obtained blueprint token (skips T1 acquisition) and output the token to console:
+```powershell
+$t1 = "<blueprint-assertion-token>"
+$tokens = Invoke-AgentAutonomousAppFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -BlueprintToken $t1 -TokenOut
 ```
 
 ### `Invoke-AgentOnBehalfOfFlow`
 
-Agent ID wrapper for the on-behalf-of OAuth flow (blueprint token + user assertion -> resource token).
+Agent ID wrapper for the on-behalf-of OAuth flow (blueprint token + user assertion -> resource token). See [Agent OAuth flows — On-behalf-of flow](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-on-behalf-of-oauth-flow) for protocol details.
 
-Core parameters:
-- `TenantId`, `BlueprintClientId`, `AgentIdentityClientId`, `UserAccessToken`
-- Optional target: `Api`, `Scope`
-- Optional pre-obtained `BlueprintToken`
-- Optional blueprint credential parameters (same pattern as above, including `BlueprintCertificatePemPath` + `BlueprintPrivateKeyPemPath` for PEM credentials)
-- Optional output controls: `TokenOut`, `DisableJwtParsing`, `Reporting`, `Silent`
+#### Parameters
 
-Example:
+| Parameter | Description | Default Value |
+|---|---|---|
+| **TenantId** | Tenant ID (MANDATORY). | - |
+| **BlueprintClientId** | Client ID of the Entra Agent ID blueprint application (MANDATORY). | - |
+| **AgentIdentityClientId** | Client ID of the agent identity application (MANDATORY). | - |
+| **UserAccessToken** | Access token of the user on whose behalf the request is made (MANDATORY). | - |
+| **Api** | Target API (FQDN or GUID). | `graph.microsoft.com` |
+| **Scope** | Scopes to request (space-separated). | `.default` |
+| **BlueprintToken** | Pre-obtained blueprint assertion token. If provided, skips the T1 acquisition step. | - |
+| **FmiPath** | Optional `fmi_path` value added to the blueprint token request. | - |
+| **BlueprintClientSecret** | Client secret for authenticating the blueprint application. | - |
+| **BlueprintCertificatePath** | Path to a PFX/P12 certificate file for blueprint app authentication. | - |
+| **BlueprintCertificatePassword** | Password for the PFX certificate file. | - |
+| **BlueprintCertificatePemPath** | Path to a PEM certificate file (use with `-BlueprintPrivateKeyPemPath`). | - |
+| **BlueprintPrivateKeyPemPath** | Path to a PEM private key file (use with `-BlueprintCertificatePemPath`). | - |
+| **BlueprintPrivateKeyPemPassword** | Password for an encrypted PEM private key. | - |
+| **BlueprintCertificateThumbprint** | Thumbprint of a certificate in the Windows certificate store. | - |
+| **BlueprintCertificateStoreLocation** | Certificate store location used with `-BlueprintCertificateThumbprint`. | `CurrentUser` |
+| **BlueprintCertificateStoreName** | Certificate store name used with `-BlueprintCertificateThumbprint`. | `My` |
+| **BlueprintClientAssertion** | Manually provided JWT client assertion for the blueprint application. | - |
+| **UserAgent** | User agent string used in HTTP requests. | Chrome 130 UA |
+| **TokenOut** | Outputs the raw access token to the console. | `false` |
+| **DisableJwtParsing** | Skips parsing of the JWT access token. | `false` |
+| **Reporting** | Enables detailed token logging to CSV. | `false` |
+| **Silent** | Suppresses console status messages. | `false` |
+
+#### Examples
+
+Obtain a delegated MS Graph token on behalf of a user using a client secret for the blueprint app:
 ```powershell
-Invoke-AgentOnBehalfOfFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -UserAccessToken $Tc.access_token -BlueprintClientSecret "<secret>" -Api "graph.microsoft.com" -Scope "User.Read"
+$userTokens = Invoke-Auth -Api "graph.microsoft.com" -Scope "User.Read"
+$tokens = Invoke-AgentOnBehalfOfFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -UserAccessToken $userTokens.access_token -BlueprintClientSecret "<secret>" -Scope "User.Read"
+```
+
+Use PEM certificate files for blueprint app authentication and target a specific API:
+```powershell
+$tokens = Invoke-AgentOnBehalfOfFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -UserAccessToken $userTokens.access_token -BlueprintCertificatePemPath "C:\certs\cert.pem" -BlueprintPrivateKeyPemPath "C:\certs\key.pem" -Api "management.azure.com" -Scope "user_impersonation"
+```
+
+Reuse a pre-obtained blueprint token to avoid re-authenticating the blueprint app:
+```powershell
+$t1 = "<blueprint-assertion-token>"
+$tokens = Invoke-AgentOnBehalfOfFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -UserAccessToken $userTokens.access_token -BlueprintToken $t1 -Scope "Mail.Read"
 ```
 
 ### `Invoke-AgentUserFlow`
 
-Agent ID wrapper for the user OAuth flow (blueprint token -> agent-user assertion token -> resource token) using `grant_type=user_fic` for the final exchange.
+Agent ID wrapper for the user OAuth flow (blueprint token -> agent-user assertion token -> resource token) using `grant_type=user_fic` for the final exchange. See [Agent's user account impersonation protocol](https://learn.microsoft.com/en-us/entra/agent-id/identity-platform/agent-user-oauth-flow) for protocol details.
 
-Core parameters:
-- `TenantId`, `BlueprintClientId`, `AgentIdentityClientId`, `AgentUserPrincipalName`
-- Optional user identifier override: `AgentUserObjectId`
-- Optional target: `Api`, `Scope`
-- Optional pre-obtained `BlueprintToken`
-- Optional pre-obtained `AgentUserAssertionToken`
-- Optional blueprint credential parameters (same pattern as above, including `BlueprintCertificatePemPath` + `BlueprintPrivateKeyPemPath` for PEM credentials)
-- Optional output controls: `TokenOut`, `DisableJwtParsing`, `Reporting`, `Silent`
+#### Parameters
 
-Example:
+| Parameter | Description | Default Value |
+|---|---|---|
+| **TenantId** | Tenant ID (MANDATORY). | - |
+| **BlueprintClientId** | Client ID of the Entra Agent ID blueprint application (MANDATORY). | - |
+| **AgentIdentityClientId** | Client ID of the agent identity application (MANDATORY). | - |
+| **AgentUserPrincipalName** | UPN of the agent user identity (MANDATORY). | - |
+| **AgentUserObjectId** | Object ID of the agent user. If provided, used as an identifier override alongside the UPN. | - |
+| **Api** | Target API (FQDN or GUID). | `graph.microsoft.com` |
+| **Scope** | Scopes to request (space-separated). | `.default` |
+| **BlueprintToken** | Pre-obtained blueprint assertion token. If provided, skips the T1 acquisition step. | - |
+| **AgentUserAssertionToken** | Pre-obtained agent-user assertion token. If provided, skips the T2 acquisition step. | - |
+| **FmiPath** | Optional `fmi_path` value added to the blueprint token request. | - |
+| **BlueprintClientSecret** | Client secret for authenticating the blueprint application. | - |
+| **BlueprintCertificatePath** | Path to a PFX/P12 certificate file for blueprint app authentication. | - |
+| **BlueprintCertificatePassword** | Password for the PFX certificate file. | - |
+| **BlueprintCertificatePemPath** | Path to a PEM certificate file (use with `-BlueprintPrivateKeyPemPath`). | - |
+| **BlueprintPrivateKeyPemPath** | Path to a PEM private key file (use with `-BlueprintCertificatePemPath`). | - |
+| **BlueprintPrivateKeyPemPassword** | Password for an encrypted PEM private key. | - |
+| **BlueprintCertificateThumbprint** | Thumbprint of a certificate in the Windows certificate store. | - |
+| **BlueprintCertificateStoreLocation** | Certificate store location used with `-BlueprintCertificateThumbprint`. | `CurrentUser` |
+| **BlueprintCertificateStoreName** | Certificate store name used with `-BlueprintCertificateThumbprint`. | `My` |
+| **BlueprintClientAssertion** | Manually provided JWT client assertion for the blueprint application. | - |
+| **UserAgent** | User agent string used in HTTP requests. | Chrome 130 UA |
+| **TokenOut** | Outputs the raw access token to the console. | `false` |
+| **DisableJwtParsing** | Skips parsing of the JWT access token. | `false` |
+| **Reporting** | Enables detailed token logging to CSV. | `false` |
+| **Silent** | Suppresses console status messages. | `false` |
+
+#### Examples
+
+Get an MS Graph token as an agent user, authenticating the blueprint app with a client secret:
 ```powershell
-Invoke-AgentUserFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -AgentUserPrincipalName "agent.user@contoso.com" -BlueprintClientSecret "<secret>" -Api "graph.microsoft.com" -Scope "User.Read"
+$tokens = Invoke-AgentUserFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -AgentUserPrincipalName "agent.user@contoso.com" -BlueprintClientSecret "<secret>" -Scope "User.Read"
+```
+
+Use a PFX certificate for blueprint app authentication and identify the agent user by object ID:
+```powershell
+$tokens = Invoke-AgentUserFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -AgentUserPrincipalName "agent.user@contoso.com" -AgentUserObjectId "<agent-user-object-id>" -BlueprintCertificatePath "C:\certs\blueprint.pfx" -Api "graph.microsoft.com" -Scope "Mail.Read"
+```
+
+Reuse a pre-obtained blueprint token and agent-user assertion token (skips both T1 and T2 acquisition):
+```powershell
+$t1 = "<blueprint-assertion-token>"
+$t2 = "<agent-user-assertion-token>"
+$tokens = Invoke-AgentUserFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -AgentUserPrincipalName "agent.user@contoso.com" -BlueprintToken $t1 -AgentUserAssertionToken $t2 -Scope "User.Read" -TokenOut
 ```
 
 ---
@@ -573,14 +708,6 @@ $Tokens.access_token | Invoke-ParseJwt
 ---
 
 
-## Internal Functions
-
-The following functions are for internal use and are not exported by the module:
-
-- `Invoke-PrintTokenInfo` Formats and displays JWT information in console.
-- `Invoke-Reporting` Logs information to a CSV file for later analysis or comparison.
-- `Get-Token` Get the token from the token endpoint (OAuth code flow).
-
 ## Security Warning
 
 It is **discouraged** to pass sensitive information, such as **Access Tokens** or especially **Refresh Tokens**, directly in the command line. 
@@ -628,10 +755,29 @@ This module includes a JWT parsing method that was initially adapted from the fo
 
 ## Changelog
 
-### 2026-03-05
+### 2026-04-09
 
 #### Added
-- New `Invoke-ROPC` command for OAuth 2.0 Resource Owner Password Credentials authentication (supports optional `client_secret`).
+- New `Invoke-ROPC` command for OAuth 2.0 Resource Owner Password Credentials authentication
+- `Invoke-ClientCredential`: Added Certificate-based authentication:
+  - `-CertificatePath` / `-CertificatePassword` — PFX/P12 file
+  - `-CertificatePemPath` / `-PrivateKeyPemPath` / `-PrivateKeyPemPassword` — PEM certificate and key files
+  - `-CertificateThumbprint` / `-CertificateStoreLocation` / `-CertificateStoreName` — Windows certificate store
+  - `-ClientAssertion` — manually provided JWT client assertion
+- `Invoke-ClientCredential`: New `-FmiPath` parameter for Entra Agent ID blueprint token requests
+- Agent ID flow wrappers (all support certificate-based or secret blueprint app authentication):
+  - `Invoke-AgentAutonomousAppFlow` — blueprint token → resource token (app-only)
+  - `Invoke-AgentOnBehalfOfFlow` — blueprint token + user assertion → delegated resource token (OBO)
+  - `Invoke-AgentUserFlow` — blueprint token → agent-user assertion → resource token (`user_fic`)
+- All flows: New `-Silent` switch suppresses console output for use in pipelines and automation
+- `Invoke-Auth`, `Invoke-Refresh`, `Invoke-DeviceCodeFlow`: New `-ForceMfa` switch requests an MFA-authenticated token context (`amr=mfa` claim)
+- `Invoke-Auth`, `Invoke-Refresh`, `Invoke-DeviceCodeFlow`: New `-ForceNgcMfa` switch requests an NGC MFA context (`amr=ngcmfa,mfa` claim)
+- Token object now includes `xms_par_app_azp` when present in the token claims
+
+#### Changed
+- `Invoke-ParseJwt` now accepts pipeline input (`$tokens.access_token | Invoke-ParseJwt`)
+- Switched response body decoding to UTF-8 for correct handling of special characters
+- CAE and MFA claim construction refactored into internal `New-OAuthClaimsJson` helper, replacing a hardcoded URL-encoded string
 
 ### 2026-01-27
 

@@ -2904,7 +2904,7 @@ function Show-EntraTokenAidHelp {
 
     # Header
     Write-Host $banner -ForegroundColor Cyan
-    Write-Host "v20260315" -ForegroundColor Green
+    Write-Host "v20260409" -ForegroundColor Green
     Write-Host "Project Source: https://github.com/zh54321/EntraTokenAid" -ForegroundColor DarkCyan
     Write-Host ""
 
