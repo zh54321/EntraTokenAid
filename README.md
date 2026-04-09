@@ -62,7 +62,7 @@ The module includes the following commands:
 | `Invoke-AgentUserFlow`          | Agent ID user flow wrapper.                                    |API: MS Graph|
 | `Invoke-Refresh`                | Get a new access token using the refresh token.                |API: MS Graph / Client: Azure CLI|
 | `Invoke-ParseJwt`               | Decode a JWT and display its body properties.                  |-|
-| `Show-EntraTokenAidHelp`        | Show Help.                                                     |-|
+| `Show-EntraTokenAidHelp`        | Show module help.                                              |-|
 
 
 ### Quick Start
@@ -108,7 +108,7 @@ All parameters are optional.
 | **DisableCAE**       | Disables Continuous Access Evaluation (CAE) support.                        | `false`                                           |
 | **ForceMfa**         | Requests an MFA-authenticated context by adding an `amr=mfa` claim.         | `false`                                           |
 | **ForceNgcMfa**      | Requests an NGC MFA-authenticated context by adding `amr=ngcmfa,mfa`.       | `false`                                           |
-| **Origin**           | Origin Header (required to Auth on a SPA).                                  | `-`                                               |
+| **Origin**           | Origin Header (required for SPA authentication).                            | `-`                                               |
 | **Reporting**        | If provided, enables detailed token logging to csv.                         | `false`                                           |
 | **Silent**           | Suppresses status messages written with `Write-Host`.                       | `false`                                           |
 | **ManualCode**       | Get auth URL for external login; use final URL with the code to auth        | `false`                                           |
@@ -130,7 +130,7 @@ Authenticate with a custom client ID and scope:
 ```powershell
 $Tokens = Invoke-Auth -ClientID "your-client-id" -Scope "offline_access Mail.Read"
 ```
-Bypass the Conditional Access Policy which require a compliant device:
+Bypass the Conditional Access Policy that requires a compliant device:
 ```powershell
 $Tokens = Invoke-Auth -ClientID '9ba1a5c7-f17a-4de9-a1f1-6178c8d51223' -RedirectUrl 'urn:ietf:wg:oauth:2.0:oob'
 ```
@@ -206,7 +206,7 @@ All parameters are optional.
 
 #### Example
 
-Simple start of the device code flow with default options.
+Start the device code flow with default options.
 ```powershell
 Invoke-DeviceCodeFlow
 ```
@@ -500,9 +500,15 @@ Agent ID wrapper for the on-behalf-of OAuth flow (blueprint token + user asserti
 
 #### Examples
 
+> **Note:** The `-UserAccessToken` must be a token scoped to the **blueprint's API** (`api://<blueprint-app-id>/access_agent`). You need a separate regular app registration (or a first-party app with admin-consented delegated `access_agent` permission) to obtain the user token.
+
 Obtain a delegated MS Graph token on behalf of a user using a client secret for the blueprint app:
 ```powershell
-$userTokens = Invoke-Auth -Api "graph.microsoft.com" -Scope "User.Read"
+# Step 1: Get a user token scoped to the blueprint's API
+# Requires a client app with delegated access_agent permission granted (admin consent may be needed)
+$userTokens = Invoke-Auth -ClientID "<client-app-id>" -Tenant "<tenant-id>" -Api "api://<blueprint-app-id>" -Scope "access_agent"
+
+# Step 2: Exchange for a delegated MS Graph token via the agent OBO flow
 $tokens = Invoke-AgentOnBehalfOfFlow -TenantId "<tenant-id>" -BlueprintClientId "<blueprint-app-id>" -AgentIdentityClientId "<agent-identity-app-id>" -UserAccessToken $userTokens.access_token -BlueprintClientSecret "<secret>" -Scope "User.Read"
 ```
 
@@ -816,7 +822,7 @@ This module includes a JWT parsing method that was initially adapted from the fo
 
 ### 2025-04-11
 #### Added
-- It is now possible now generate the authentication URL for use on another system. After successful authentication, copy the URL containing the AuthCode, and use EntraToken aid to extract the code and obtain the token.
+- It is now possible to generate the authentication URL for use on another system. After successful authentication, copy the URL containing the auth code and use EntraTokenAid to extract the code and obtain the token.
 `$tokens = Invoke-Auth -ManualCode`
 
 Note: Inspired by: 
@@ -864,7 +870,7 @@ Note: Inspired by:
 #### Added
 
 - Refresh Auth: New User Agent parameter
-- Refresh Auth: New parameters BrkClientId, RedirectUri and Origin. In combination with a refresh token from the Azure Portal, this allows to get tokens from applications with interesting pre consented scopes on the MS Graph API.
+- Refresh Auth: New parameters BrkClientId, RedirectUri, and Origin. In combination with a refresh token from the Azure Portal, this allows tokens to be obtained from applications with interesting pre-consented scopes on the MS Graph API.
 - Refresh Auth: Failed authentications are now logged as well to the CSV file (switch `-Reporting`)
 - Device Code Flow: Failed authentications are now logged as well to the CSV file (switch `-Reporting`)
 

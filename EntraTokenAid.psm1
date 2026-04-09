@@ -6,7 +6,7 @@
     EntraTokenAid is a PowerShell module to simplify OAuth workflows with Microsoft Entra ID, to get the access and refresh token for different APIs using different clients.
     Accessing cleartext access and refresh tokens for various MS APIs (e.g., MS Graph) is often a requirement during engagements and research, especially using pre-consented clients (e.g., AzureCLI) to avoid additional consent prompts. Tokens are needed not only for manual enumeration via APIs but also for tools like AzureHound or GraphRunner, which require a valid refresh token.
     With more customers starting to block the Device Code Flow, alternative authentication methods for obtaining cleartext refresh tokens are becoming increasingly important. While using AzureCLI modules is a common solution, its installation may not always be feasibleâ€”especially on customer systems. Other alternatives like roadtx require Python, which might not be ideal in customer environments.
-    This tool should bridges this gap with a lightweight, standalone PowerShell solution that works even on the customers Windows systems.
+    This tool bridges this gap with a lightweight, standalone PowerShell solution that works even on customers' Windows systems.
 
     Features:
     - No dependencies: A pure PowerShell single-file module that works on Windows systems (tested in PS 5&7).
@@ -17,7 +17,7 @@
     - Avoiding Consent: By default, the tool uses the Azure CLI client ID, enabling many MS Graph API actions without additional consent due to pre-consented permissions.
     - Parameters: A wide range of parameters allow you to customize the tool's behavior, such as enabling features like PKCE, CAE, and more, providing greater control during usage.
     - Automation-Friendly: Enables automated OAuth Auth Code Flow tests by disabling user interaction, with the gathered tokens and claims exported to a CSV file.
-    - Support of the parameters BrkClientId, RedirectUri and Origin. In combination with a refresh token from the Azure Portal, this allows to get tokens from applications with interesting pre consented scopes on the MS Graph API.
+    - Supports the parameters BrkClientId, RedirectUri, and Origin. In combination with a refresh token from the Azure Portal, this allows tokens to be obtained from applications with interesting pre-consented scopes on the MS Graph API.
     - Uses a legacy technique to spawn and control a browser window from PowerShell to capture the OAuth reply code on external URLs (IE-based, therefore Windows-only).
 
     .LINK
@@ -149,7 +149,7 @@ function Invoke-Auth {
     Default: `graph.microsoft.com`
 
     .PARAMETER HttpTimeout
-    Specifies the time in seconds the http should listenting for requests.
+    Specifies the time in seconds that the HTTP listener waits for requests.
     Useful for automated testing in combination with -DisablePrompt.
     Default: `180`
 
@@ -169,7 +169,7 @@ function Invoke-Auth {
     Prevents user selection in the browser during authentication (silent authentication).
 
     .PARAMETER UserAgent
-    Specifies the user agent string to be used in the HTTP requests (not will only impact non-interactive sign-ins).
+    Specifies the user agent string to be used in HTTP requests. This only impacts non-interactive sign-ins.
     Default: `python-requests/2.32.3`
 
     .PARAMETER DisablePKCE
@@ -208,7 +208,7 @@ function Invoke-Auth {
     .EXAMPLE
     Invoke-Auth
 
-    Performs the defualt authentication for Microsoft Graph with client id of Azure CLI.
+    Performs the default authentication for Microsoft Graph using the Azure CLI client ID.
 
     .EXAMPLE
     Invoke-Auth -ClientID "04b07795-8ddb-461a-bbee-02f9e1bf7b46" -Scope "User.Read" -Api "graph.microsoft.com"
@@ -737,7 +737,7 @@ function Invoke-Refresh {
     Default: `python-requests/2.32.3`
 
     .PARAMETER Tenant
-    Specifies the target tenant id for authentication. Defaults to `organizations` for multi-tenant scenarios.
+    Specifies the target tenant id for authentication. Defaults to `common` for multi-tenant scenarios.
 
     .PARAMETER TokenOut
     If specified, the function outputs the access token in the console.
@@ -918,7 +918,7 @@ function Invoke-Refresh {
         }
         Return $tokens
     } elseif($Proceed) {
-        Write-StatusMessage -Message "[!] The answer obtained from the token endpoint do not contains tokens" -Silent:$Silent
+        Write-StatusMessage -Message "[!] The response from the token endpoint did not contain tokens" -Silent:$Silent
     }
 
 }
@@ -1842,7 +1842,7 @@ function Invoke-ROPC {
 
         return $TokensRopc
     } elseif ($Proceed) {
-        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The response from the token endpoint did not contain tokens" -Silent:$Silent
     }
 }
 
@@ -2063,7 +2063,7 @@ function Invoke-AgentJwtBearerExchange {
     }
 
     if ($Proceed) {
-        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The response from the token endpoint did not contain tokens" -Silent:$Silent
     }
 
     return $null
@@ -2194,7 +2194,7 @@ function Invoke-AgentUserFicExchange {
     }
 
     if ($Proceed) {
-        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The response from the token endpoint did not contain tokens" -Silent:$Silent
     }
 
     return $null
@@ -2675,7 +2675,7 @@ function Get-Token {
     Prints token details if set to $true (Optional).
 
     .PARAMETER UserAgent
-    Specifies the user agent string to be used in the HTTP requests (not will only impact non-interactive sign-ins).
+    Specifies the user agent string to be used in HTTP requests. This only impacts non-interactive sign-ins.
     Default: `python-requests/2.32.3`
 
     .PARAMETER Origin
@@ -2875,12 +2875,12 @@ function Get-Token {
         Return $tokens
 
     } else {
-        Write-StatusMessage -Message "[!] Error: Something went wrong. The answer from the token endpoint do not contains tokens" -Silent:$Silent
+        Write-StatusMessage -Message "[!] Error: Something went wrong. The response from the token endpoint did not contain tokens" -Silent:$Silent
 
         #Create Error Object to use in reporting
         $ErrorDetails = [PSCustomObject]@{
             ClientID    = $ClientID
-            ErrorLong   = "The answer from the token endpoint do not contains tokens."
+            ErrorLong   = "The response from the token endpoint did not contain tokens."
         }
         if ($Reporting) {
             Invoke-Reporting -ErrorDetails $ErrorDetails -OutputFile "Auth_report_$($ReportName)_error.csv"
